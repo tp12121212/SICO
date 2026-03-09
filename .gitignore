@@ -1,0 +1,51 @@
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build/cache artifacts
+node_modules/
+dashboard/node_modules/
+dist/
+coverage/
+.turbo/
+.cache/
+dashboard/.next/
+dashboard/out/
+*.tsbuildinfo
+
+# Runtime/process artifacts
+.appctl/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local settings and env
+.env
+.env.*
+!.env.example
+worker/local.settings.json
+
+# Security-sensitive files
+*.pem
+*.pfx
+*.key
+*.crt
+*.cer
+*.p12
+*.jks
+id_rsa
+id_ed25519
+
+# Temporary and exported data
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+*.rej
+out.json

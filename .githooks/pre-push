@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+echo "[pre-push] Running secret and hygiene checks..."
+
+FORBIDDEN_FILES_REGEX='(^|/)(\.env(\.|$)|local\.settings\.json$|id_rsa$|id_ed25519$|.*\.(pfx|p12|pem|key|jks)$)'
+SECRET_REGEX='(AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----|xox[baprs]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{36}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})'
+
+tracked_files="$(git ls-files)"
+
+if [[ -n "$(printf '%s\n' "$tracked_files" | rg -n "$FORBIDDEN_FILES_REGEX" || true)" ]]; then
+  echo "[pre-push] Blocked: forbidden sensitive file detected in tracked files."
+  printf '%s\n' "$tracked_files" | rg -n "$FORBIDDEN_FILES_REGEX" || true
+  exit 1
+fi
+
+if [[ -n "$(git grep -nE "$SECRET_REGEX" -- . ':!package-lock.json' ':!dashboard/package-lock.json' ':!dashboard/src/data/sit/patterns.json' || true)" ]]; then
+  echo "[pre-push] Blocked: potential secret/token pattern found in tracked content."
+  git grep -nE "$SECRET_REGEX" -- . ':!package-lock.json' ':!dashboard/package-lock.json' ':!dashboard/src/data/sit/patterns.json' || true
+  exit 1
+fi
+
+echo "[pre-push] Checks passed."
