@@ -206,7 +206,17 @@ function Get-MatchItems {
         return @($Parsed)
     }
 
-    $candidateFields = @("matches", "Matches", "detections", "Detections", "results", "Results", "items", "Items")
+    $candidateFields = @(
+        "matches",
+        "Matches",
+        "detections",
+        "Detections",
+        "results",
+        "Results",
+        "items",
+        "Items",
+        "DataClassification"
+    )
     foreach ($field in $candidateFields) {
         $prop = $Parsed.PSObject.Properties[$field]
         if ($null -eq $prop) {
@@ -237,12 +247,18 @@ function Resolve-DataClassificationScriptPath {
     }
 
     $candidates += @(
-        (Join-Path $PSScriptRoot "..\..\..\purview_scripts\test-dataclassication.ps1"),
-        (Join-Path $PSScriptRoot "..\..\..\purview_scripts\test-dataclassification.ps1"),
-        (Join-Path $PSScriptRoot "..\..\purview_scripts\test-dataclassication.ps1"),
-        (Join-Path $PSScriptRoot "..\..\purview_scripts\test-dataclassification.ps1"),
-        (Join-Path (Get-Location) "purview_scripts\test-dataclassication.ps1"),
-        (Join-Path (Get-Location) "purview_scripts\test-dataclassification.ps1")
+        (Join-Path $PSScriptRoot "../../../purview_scripts/testDataclassification.ps1"),
+        (Join-Path $PSScriptRoot "../../../purview_scripts/testDataclassication.ps1"),
+        (Join-Path $PSScriptRoot "../../../purview_scripts/test-dataclassification.ps1"),
+        (Join-Path $PSScriptRoot "../../../purview_scripts/test-dataclassication.ps1"),
+        (Join-Path $PSScriptRoot "../../purview_scripts/testDataclassification.ps1"),
+        (Join-Path $PSScriptRoot "../../purview_scripts/testDataclassication.ps1"),
+        (Join-Path $PSScriptRoot "../../purview_scripts/test-dataclassification.ps1"),
+        (Join-Path $PSScriptRoot "../../purview_scripts/test-dataclassication.ps1"),
+        (Join-Path (Get-Location) "purview_scripts/testDataclassification.ps1"),
+        (Join-Path (Get-Location) "purview_scripts/testDataclassication.ps1"),
+        (Join-Path (Get-Location) "purview_scripts/test-dataclassification.ps1"),
+        (Join-Path (Get-Location) "purview_scripts/test-dataclassication.ps1")
     )
 
     foreach ($candidate in $candidates) {
@@ -275,7 +291,12 @@ function Resolve-DataClassificationInvoker {
         }
     }
 
-    $commandNames = @("test-dataclassication", "test-dataclassification")
+    $commandNames = @(
+        "testDataclassification",
+        "testDataclassication",
+        "test-dataclassification",
+        "test-dataclassication"
+    )
     foreach ($name in $commandNames) {
         if (Get-Command -Name $name -ErrorAction SilentlyContinue) {
             return [ordered]@{
@@ -309,7 +330,7 @@ function Invoke-DataClassification {
 
     $invoker = Resolve-DataClassificationInvoker
     if ($null -eq $invoker) {
-        throw "Unable to resolve test-dataclassication script or command"
+        throw "Unable to resolve data classification script or command (expected names: testDataclassification/test-dataclassification)"
     }
 
     $effectiveFileName = if ([string]::IsNullOrWhiteSpace($FileName)) { "input.txt" } else { $FileName }
@@ -342,14 +363,21 @@ function Invoke-DataClassification {
             MacFile = $tempFile
         }
 
-        if ($RunAllSits) {
-            $commandInfo = Get-Command -Name $invoker.command -ErrorAction SilentlyContinue
-            if ($commandInfo) {
+        $commandInfo = Get-Command -Name $invoker.command -ErrorAction SilentlyContinue
+        if ($commandInfo) {
+            if ($commandInfo.Parameters.ContainsKey("DataClassification")) {
+                $invokeParams.DataClassification = $true
+            }
+
+            if ($RunAllSits) {
                 if ($commandInfo.Parameters.ContainsKey("RunAllSits")) {
                     $invokeParams.RunAllSits = $true
                 }
                 elseif ($commandInfo.Parameters.ContainsKey("AllSits")) {
                     $invokeParams.AllSits = $true
+                }
+                elseif ($commandInfo.Parameters.ContainsKey("AllSensitiveInformationTypes")) {
+                    $invokeParams.AllSensitiveInformationTypes = $true
                 }
             }
         }

@@ -6,6 +6,8 @@ import {
   type AccountInfo
 } from "@azure/msal-browser";
 import { useEffect, useState } from "react";
+import LiveExecutionTerminal from "@/features/testing/components/live-execution-terminal";
+import { buildApiUrl } from "@/features/testing/lib/api-url";
 
 type WorkerResult = {
   status?: string;
@@ -26,7 +28,7 @@ type WorkerResult = {
 
 const aadClientId = process.env.NEXT_PUBLIC_AAD_CLIENT_ID ?? "63eefc68-2d4b-45c0-a619-65b45c5fada9";
 const aadAuthority = process.env.NEXT_PUBLIC_AAD_AUTHORITY ?? "https://login.microsoftonline.com/organizations";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const apiScope = process.env.NEXT_PUBLIC_API_SCOPE ?? `api://${aadClientId}/Capsule.Submit`;
 const maxUploadMb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 10);
 const dataClassificationPath = "/testing/test-data-classification";
@@ -186,6 +188,7 @@ export default function TextExtractionWorkbench() {
   const [streamTextLength, setStreamTextLength] = useState(0);
   const [streamItems, setStreamItems] = useState<NonNullable<WorkerResult["Streams"]>>([]);
   const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
+  const [activeCapsuleId, setActiveCapsuleId] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -253,9 +256,10 @@ export default function TextExtractionWorkbench() {
         fileName: file.name,
         fileContent
       });
+      setActiveCapsuleId(capsule.capsuleId);
 
       setStatus("Submitting extraction capsule...");
-      const response = await fetch(`${apiBaseUrl}/api/capsule`, {
+      const response = await fetch(buildApiUrl(apiBaseUrl, "/api/capsule"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -367,6 +371,7 @@ export default function TextExtractionWorkbench() {
         )}
 
         <p className="mt-5 text-sm text-dark dark:text-white">Status: {status}</p>
+        <LiveExecutionTerminal capsuleId={activeCapsuleId} apiBaseUrl={apiBaseUrl} />
 
         {extractedText && streamItems.length === 0 ? (
           <div className="mt-4 rounded-lg border border-green-300 bg-green-50 p-4 dark:border-green-700 dark:bg-green-950/30">

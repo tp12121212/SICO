@@ -4,6 +4,8 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 const app = express();
 const MAX_JSON_BODY_MB = Number(process.env.MAX_JSON_BODY_MB ?? 20);
 const WORKER_TIMEOUT_MS = Number(process.env.WORKER_TIMEOUT_MS ?? 900000);
+const CAPSULE_STREAM_MAX_EVENTS = Number(process.env.CAPSULE_STREAM_MAX_EVENTS ?? 400);
+const CAPSULE_STREAM_RETENTION_MS = Number(process.env.CAPSULE_STREAM_RETENTION_MS ?? 30 * 60 * 1000);
 app.use(express.json({ limit: `${MAX_JSON_BODY_MB}mb` }));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -70,10 +72,117 @@ const COMMAND_REGISTRY = {
   }
 };
 const statusStore = new Map();
+const capsuleStreamStore = new Map();
+let capsuleEventSequence = 0;
 
 function toIsoTimestamp(now = new Date()) {
   return now.toISOString();
 }
+
+function truncateString(value, maxLength = 280) {
+  if (typeof value !== "string") {
+    return value;
+  }
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength)}... <truncated:${value.length - maxLength} chars>`;
+}
+
+function sanitizeEventData(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return truncateString(value, 500);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeEventData(item));
+  }
+
+  if (typeof value === "object") {
+    const sanitized = {};
+    const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
+    for (const [key, item] of entries) {
+      if (key === "fileContent" && typeof item === "string") {
+        sanitized[key] = `<redacted-base64:${item.length} chars>`;
+        continue;
+      }
+      if (key === "inputText" && typeof item === "string") {
+        sanitized[key] = `<redacted-text:${item.length} chars>`;
+        continue;
+      }
+      sanitized[key] = sanitizeEventData(item);
+    }
+    return sanitized;
+  }
+
+  return String(value);
+}
+
+function writeSseEvent(response, eventName, data) {
+  response.write(`event: ${eventName}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function getCapsuleStreamEntry(capsuleId) {
+  if (!capsuleStreamStore.has(capsuleId)) {
+    capsuleStreamStore.set(capsuleId, {
+      events: [],
+      clients: new Set(),
+      updatedAt: Date.now()
+    });
+  }
+  return capsuleStreamStore.get(capsuleId);
+}
+
+function emitCapsuleLog(capsuleId, event) {
+  if (typeof capsuleId !== "string" || capsuleId.trim().length === 0) {
+    return;
+  }
+
+  const entry = getCapsuleStreamEntry(capsuleId);
+  const payload = {
+    capsuleId,
+    eventId: ++capsuleEventSequence,
+    timestamp: toIsoTimestamp(),
+    level: event.level ?? "info",
+    phase: event.phase ?? "runtime",
+    message: event.message ?? "",
+    data: sanitizeEventData(event.data),
+    done: event.done === true
+  };
+
+  entry.events.push(payload);
+  if (entry.events.length > CAPSULE_STREAM_MAX_EVENTS) {
+    entry.events.splice(0, entry.events.length - CAPSULE_STREAM_MAX_EVENTS);
+  }
+  entry.updatedAt = Date.now();
+
+  for (const client of entry.clients) {
+    writeSseEvent(client, payload.done ? "done" : "log", payload);
+  }
+}
+
+function cleanupCapsuleStreams() {
+  const now = Date.now();
+  for (const [capsuleId, entry] of capsuleStreamStore.entries()) {
+    if (entry.clients.size > 0) {
+      continue;
+    }
+    if (now - entry.updatedAt > CAPSULE_STREAM_RETENTION_MS) {
+      capsuleStreamStore.delete(capsuleId);
+    }
+  }
+}
+
+setInterval(cleanupCapsuleStreams, 5 * 60 * 1000).unref();
 
 function pickAuditView(capsule) {
   const params = capsule?.params && typeof capsule.params === "object" ? { ...capsule.params } : {};
@@ -235,6 +344,12 @@ async function validateAccessToken(authorizationHeader) {
 
 async function invokeWorker(capsule) {
   const workerUrl = COMMAND_REGISTRY[capsule.action].workerUrl;
+  emitCapsuleLog(capsule.capsuleId, {
+    level: "info",
+    phase: "worker",
+    message: "Preparing worker request",
+    data: { action: capsule.action, workerUrl }
+  });
   const workerRequest =
     capsule.action === "TextExtraction" || capsule.action === "DataClassification"
       ? {
@@ -249,6 +364,11 @@ async function invokeWorker(capsule) {
     const timeout = setTimeout(() => controller.abort(), WORKER_TIMEOUT_MS);
     let workerResponse;
     try {
+      emitCapsuleLog(capsule.capsuleId, {
+        level: "info",
+        phase: "worker",
+        message: "Calling worker endpoint"
+      });
       workerResponse = await fetch(workerUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -258,6 +378,13 @@ async function invokeWorker(capsule) {
     } finally {
       clearTimeout(timeout);
     }
+
+    emitCapsuleLog(capsule.capsuleId, {
+      level: "info",
+      phase: "worker",
+      message: "Worker HTTP response received",
+      data: { status: workerResponse.status }
+    });
 
     const rawText = await workerResponse.text();
     let parsed = {};
@@ -270,21 +397,50 @@ async function invokeWorker(capsule) {
     }
 
     if (!workerResponse.ok) {
+      emitCapsuleLog(capsule.capsuleId, {
+        level: "error",
+        phase: "worker",
+        message: `Worker returned non-success status: ${workerResponse.status}`
+      });
       throw new Error(`Worker call failed: ${workerResponse.status}`);
     }
 
+    emitCapsuleLog(capsule.capsuleId, {
+      level: "success",
+      phase: "worker",
+      message: "Worker call completed",
+      data: {
+        responseKeys: parsed && typeof parsed === "object" ? Object.keys(parsed).sort() : []
+      }
+    });
     return parsed;
   } catch (error) {
     if (error?.name === "AbortError") {
+      emitCapsuleLog(capsule.capsuleId, {
+        level: "error",
+        phase: "worker",
+        message: `Worker call timed out after ${WORKER_TIMEOUT_MS}ms`
+      });
       throw new Error(`Worker call timed out after ${WORKER_TIMEOUT_MS}ms`);
     }
     if (!ALLOW_DUMMY_WORKER_FALLBACK) {
+      emitCapsuleLog(capsule.capsuleId, {
+        level: "error",
+        phase: "worker",
+        message: "Worker call failed",
+        data: { error: error instanceof Error ? error.message : String(error) }
+      });
       throw error;
     }
 
     console.warn("Worker unavailable, returning dummy PoC result", {
       capsuleId: capsule.capsuleId,
       action: capsule.action
+    });
+    emitCapsuleLog(capsule.capsuleId, {
+      level: "warn",
+      phase: "worker",
+      message: "Worker unavailable, returned dummy fallback result"
     });
 
     return {
@@ -330,8 +486,89 @@ app.get("/api/status/:capsuleId", (req, res) => {
   });
 });
 
+app.get("/api/capsule/:capsuleId/stream", (req, res) => {
+  const { capsuleId } = req.params;
+  if (!capsuleId || capsuleId.trim().length === 0) {
+    res.status(400).json({ status: "error", error: "Invalid capsuleId" });
+    return;
+  }
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+  res.write(": connected\n\n");
+
+  const entry = getCapsuleStreamEntry(capsuleId);
+  entry.clients.add(res);
+  entry.updatedAt = Date.now();
+
+  writeSseEvent(res, "ready", {
+    capsuleId,
+    connectedAt: toIsoTimestamp()
+  });
+  writeSseEvent(res, "snapshot", {
+    capsuleId,
+    events: entry.events
+  });
+
+  const lastEvent = entry.events.length > 0 ? entry.events[entry.events.length - 1] : null;
+  if (lastEvent?.done === true) {
+    writeSseEvent(res, "done", lastEvent);
+    res.end();
+    entry.clients.delete(res);
+    entry.updatedAt = Date.now();
+    return;
+  }
+
+  const heartbeat = setInterval(() => {
+    writeSseEvent(res, "heartbeat", {
+      capsuleId,
+      timestamp: toIsoTimestamp()
+    });
+  }, 10000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    entry.clients.delete(res);
+    entry.updatedAt = Date.now();
+  });
+});
+
+app.get("/api/capsule/:capsuleId/events", (req, res) => {
+  const { capsuleId } = req.params;
+  if (!capsuleId || capsuleId.trim().length === 0) {
+    res.status(400).json({ status: "error", error: "Invalid capsuleId" });
+    return;
+  }
+
+  const entry = capsuleStreamStore.get(capsuleId);
+  res.status(200).json({
+    capsuleId,
+    events: entry ? entry.events : []
+  });
+});
+
 app.post("/api/capsule", async (req, res) => {
+  const requestCapsuleId = typeof req.body?.capsuleId === "string" ? req.body.capsuleId : null;
+  if (requestCapsuleId) {
+    emitCapsuleLog(requestCapsuleId, {
+      level: "info",
+      phase: "request",
+      message: "Capsule request received by API"
+    });
+  }
+
   try {
+    if (requestCapsuleId) {
+      emitCapsuleLog(requestCapsuleId, {
+        level: "info",
+        phase: "auth",
+        message: "Validating access token"
+      });
+    }
     const tokenPayload = await validateAccessToken(req.headers.authorization);
     console.log("Token validated", {
       oid: tokenPayload.oid,
@@ -339,9 +576,30 @@ app.post("/api/capsule", async (req, res) => {
       iss: tokenPayload.iss,
       scp: tokenPayload.scp
     });
+    if (requestCapsuleId) {
+      emitCapsuleLog(requestCapsuleId, {
+        level: "success",
+        phase: "auth",
+        message: "Access token validated",
+        data: {
+          oid: tokenPayload.oid,
+          tid: tokenPayload.tid,
+          scp: tokenPayload.scp
+        }
+      });
+    }
 
     const capsuleError = requireValidCapsule(req.body);
     if (capsuleError) {
+      if (requestCapsuleId) {
+        emitCapsuleLog(requestCapsuleId, {
+          level: "error",
+          phase: "validation",
+          message: "Capsule validation failed",
+          data: { error: capsuleError },
+          done: true
+        });
+      }
       res.status(400).json({ status: "error", error: capsuleError });
       return;
     }
@@ -360,6 +618,12 @@ app.post("/api/capsule", async (req, res) => {
         : capsule;
 
     saveStatus(capsule.capsuleId, { status: "processing" });
+    emitCapsuleLog(capsule.capsuleId, {
+      level: "info",
+      phase: "validation",
+      message: "Capsule validated",
+      data: { action: capsule.action }
+    });
     console.log("Received capsule", pickAuditView(workerCapsule));
 
     const workerResult = await invokeWorker(workerCapsule);
@@ -371,6 +635,15 @@ app.post("/api/capsule", async (req, res) => {
     };
     console.log("Audit record", auditRecord);
     saveStatus(capsule.capsuleId, { status: "success", workerResult });
+    emitCapsuleLog(capsule.capsuleId, {
+      level: "success",
+      phase: "complete",
+      message: "Capsule processing completed",
+      data: {
+        workerStatus: workerResult?.status ?? "unknown"
+      },
+      done: true
+    });
 
     res.status(200).json({
       capsuleId: capsule.capsuleId,
@@ -389,6 +662,15 @@ app.post("/api/capsule", async (req, res) => {
         : 500;
 
     console.error("Capsule processing failed", { error: message });
+    if (requestCapsuleId) {
+      emitCapsuleLog(requestCapsuleId, {
+        level: "error",
+        phase: "complete",
+        message: "Capsule processing failed",
+        data: { error: message },
+        done: true
+      });
+    }
     res.status(status).json({ status: "error", error: message });
   }
 });
