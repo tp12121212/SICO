@@ -100,6 +100,105 @@ function Convert-ToBoolean {
     return $Default
 }
 
+function Has-ExchangeOnlineSupport {
+    return (Get-Command -Name Connect-ExchangeOnline -ErrorAction SilentlyContinue) -or
+        (Get-Command -Name Connect-IPPSSession -ErrorAction SilentlyContinue)
+}
+
+function Add-CommonModulePaths {
+    $separator = [System.IO.Path]::PathSeparator
+    $candidates = @(
+        (Join-Path $HOME ".local/share/powershell/Modules"),
+        (Join-Path $HOME "Documents/PowerShell/Modules"),
+        "/usr/local/share/powershell/Modules",
+        "/opt/homebrew/share/powershell/Modules"
+    )
+
+    $currentPaths = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:PSModulePath)) {
+        $currentPaths = @($env:PSModulePath -split [regex]::Escape($separator))
+    }
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            continue
+        }
+        if ($currentPaths -contains $candidate) {
+            continue
+        }
+        $currentPaths = @($candidate) + $currentPaths
+    }
+
+    $env:PSModulePath = ($currentPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join $separator
+}
+
+function Ensure-ComplianceSessionSupport {
+    Add-CommonModulePaths
+    if (Has-ExchangeOnlineSupport) {
+        return $true
+    }
+
+    $maxAttempts = 30
+    $sleepSeconds = 2
+    $lastError = $null
+    $installAttempted = $false
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        if (Has-ExchangeOnlineSupport) {
+            return $true
+        }
+
+        try {
+            $moduleInfo = Get-Module -ListAvailable -Name ExchangeOnlineManagement |
+                Sort-Object -Property Version -Descending |
+                Select-Object -First 1
+
+            if ($null -ne $moduleInfo -and -not [string]::IsNullOrWhiteSpace([string]$moduleInfo.Path)) {
+                Import-Module $moduleInfo.Path -Force -ErrorAction Stop | Out-Null
+            }
+            else {
+                Import-Module ExchangeOnlineManagement -Force -ErrorAction Stop | Out-Null
+            }
+        }
+        catch {
+            $lastError = $_
+        }
+
+        if (-not $installAttempted -and $attempt -ge 4 -and -not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+            $installAttempted = $true
+            try {
+                Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue | Out-Null
+                Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null
+                Add-CommonModulePaths
+                Import-Module ExchangeOnlineManagement -Force -ErrorAction Stop | Out-Null
+            }
+            catch {
+                $lastError = $_
+            }
+        }
+
+        if (Has-ExchangeOnlineSupport) {
+            return $true
+        }
+
+        if ($attempt -lt $maxAttempts) {
+            Start-Sleep -Seconds $sleepSeconds
+        }
+    }
+
+    $lastErrorMessage = if ($lastError -and $lastError.Exception -and $lastError.Exception.Message) {
+        $lastError.Exception.Message
+    }
+    else {
+        "unknown import error"
+    }
+    Write-Warning ("ExchangeOnlineManagement module is not available in the Functions worker after retries. Last error: {0}" -f $lastErrorMessage)
+    return $false
+}
+
 function Convert-ToDeterministicJsonValue {
     param($Value)
 

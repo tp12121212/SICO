@@ -6,7 +6,7 @@
     "dev": "next dev -p 5173",
     "build": "next build",
     "start": "next start -p 5173",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@azure/msal-browser": "^4.5.0",

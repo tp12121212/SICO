@@ -141,6 +141,201 @@ function Try-DecodeText {
     }
 }
 
+function Get-ScriptOutputText {
+    param($Output)
+
+    if ($null -eq $Output) {
+        return ""
+    }
+
+    if ($Output -is [string]) {
+        return (Normalize-OutputText -Value $Output).Trim()
+    }
+
+    if ($Output -is [System.Array]) {
+        $parts = @()
+        foreach ($item in $Output) {
+            if ($null -eq $item) {
+                continue
+            }
+
+            if ($item -is [string]) {
+                $text = (Normalize-OutputText -Value $item).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($text)) {
+                    $parts += $text
+                }
+                continue
+            }
+
+            if ($item -is [System.Management.Automation.ErrorRecord]) {
+                $errorText = ""
+                if ($item.Exception -and -not [string]::IsNullOrWhiteSpace([string]$item.Exception.Message)) {
+                    $errorText = [string]$item.Exception.Message
+                } else {
+                    $errorText = [string]$item
+                }
+                $errorText = (Normalize-OutputText -Value $errorText).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($errorText)) {
+                    $parts += $errorText
+                }
+                continue
+            }
+
+            $genericText = (Normalize-OutputText -Value ([string]$item)).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($genericText)) {
+                $parts += $genericText
+            }
+        }
+
+        return ($parts -join "`n").Trim()
+    }
+
+    return (Normalize-OutputText -Value ([string]$Output)).Trim()
+}
+
+function Get-BalancedJsonSegment {
+    param(
+        [string]$Text,
+        [int]$StartIndex
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) {
+        return $null
+    }
+    if ($StartIndex -lt 0 -or $StartIndex -ge $Text.Length) {
+        return $null
+    }
+
+    $startChar = $Text[$StartIndex]
+    if ($startChar -ne "{" -and $startChar -ne "[") {
+        return $null
+    }
+
+    $depth = 0
+    $inString = $false
+    $escape = $false
+
+    for ($index = $StartIndex; $index -lt $Text.Length; $index++) {
+        $ch = $Text[$index]
+
+        if ($inString) {
+            if ($escape) {
+                $escape = $false
+                continue
+            }
+            if ($ch -eq "\") {
+                $escape = $true
+                continue
+            }
+            if ($ch -eq '"') {
+                $inString = $false
+            }
+            continue
+        }
+
+        if ($ch -eq '"') {
+            $inString = $true
+            continue
+        }
+
+        if ($ch -eq "{" -or $ch -eq "[") {
+            $depth++
+            continue
+        }
+
+        if ($ch -eq "}" -or $ch -eq "]") {
+            $depth--
+            if ($depth -eq 0) {
+                return $Text.Substring($StartIndex, ($index - $StartIndex + 1))
+            }
+        }
+    }
+
+    return $null
+}
+
+function Try-ParseJsonFromScriptOutput {
+    param($Output)
+
+    $rawText = Get-ScriptOutputText -Output $Output
+    if ([string]::IsNullOrWhiteSpace($rawText)) {
+        return [ordered]@{
+            parsed = $null
+            rawText = ""
+        }
+    }
+
+    $trimmed = $rawText.Trim()
+    $candidates = @()
+    if ($trimmed.StartsWith("{") -or $trimmed.StartsWith("[")) {
+        $candidates += $trimmed
+    }
+
+    for ($index = 0; $index -lt $trimmed.Length; $index++) {
+        $ch = $trimmed[$index]
+        if ($ch -ne "{" -and $ch -ne "[") {
+            continue
+        }
+
+        $segment = Get-BalancedJsonSegment -Text $trimmed -StartIndex $index
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+        if ($candidates -contains $segment) {
+            continue
+        }
+        $candidates += $segment
+    }
+
+    foreach ($candidate in $candidates) {
+        try {
+            $parsed = $candidate | ConvertFrom-Json -Depth 20
+            return [ordered]@{
+                parsed = $parsed
+                rawText = $rawText
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return [ordered]@{
+        parsed = $null
+        rawText = $rawText
+    }
+}
+
+function New-NonJsonPurviewFallbackResult {
+    param([string]$RawText)
+
+    $text = Normalize-OutputText -Value $RawText
+    $text = [regex]::Replace($text, '(?m)^\|+\s*', '')
+    $text = $text.Trim()
+
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        $text = "No extractable text found. File may be image-only or scanned without OCR."
+    }
+
+    $fallbackStream = [ordered]@{
+        StreamId = 8200
+        StreamName = "Message Body"
+        StreamTextLength = $text.Length
+        ExtractedStreamText = $text
+    }
+
+    return [ordered]@{
+        status = "extracted"
+        extractionMethod = "purview-script-raw"
+        StreamTextLength = $text.Length
+        StreamId = 8200
+        StreamName = "Message Body"
+        ExtractedStreamText = $text
+        text = $text
+        Streams = @($fallbackStream)
+    }
+}
+
 function Resolve-PurviewScriptPath {
     $candidates = @()
     if (-not [string]::IsNullOrWhiteSpace($env:PURVIEW_TEXT_EXTRACTION_SCRIPT)) {
@@ -312,11 +507,16 @@ function Invoke-PurviewScriptExtraction {
         catch {
             $errorMessage = if ($_.Exception -and $_.Exception.Message) { $_.Exception.Message } else { "Purview extraction script execution failed" }
             $looksLikeComplianceInit = $errorMessage -match "Connect-IPPSSession|ExchangeOnlineManagement|Connect-ExchangeOnline"
+            $looksLikeDocumentParseIssue = $errorMessage -match "Unable to parse input document file|contains text and isn't encrypted by a password"
             if ($preflightReady -eq $false -and $looksLikeComplianceInit) {
                 # First invocation can race module/session initialization; retry once in-request.
                 Start-Sleep -Seconds 6
                 [void](Ensure-ComplianceSessionSupport)
                 $scriptOutput = & $scriptPath -UserPrincipalName $UserPrincipalName -MacFile $tempFile
+            }
+            elseif ($looksLikeDocumentParseIssue) {
+                # Treat parser-level document issues as extraction output so API callers get a deterministic result body.
+                $scriptOutput = $errorMessage
             }
             else {
                 throw
@@ -329,27 +529,22 @@ function Invoke-PurviewScriptExtraction {
 
         $resultObj = $null
         $resultItems = @()
-        if ($scriptOutput -is [string]) {
-            $trimmed = $scriptOutput.Trim()
-            if ($trimmed.StartsWith("{") -or $trimmed.StartsWith("[")) {
-                $resultObj = $trimmed | ConvertFrom-Json -Depth 20
-            } else {
-                throw "Purview extraction script output is not JSON"
-            }
-        } elseif ($scriptOutput -is [System.Array]) {
-            $stringItems = @($scriptOutput | Where-Object { $_ -is [string] })
-            if ($stringItems.Count -eq $scriptOutput.Count -and $stringItems.Count -gt 0) {
-                $trimmed = (($stringItems -join "`n")).Trim()
-                if ($trimmed.StartsWith("{") -or $trimmed.StartsWith("[")) {
-                    $resultObj = $trimmed | ConvertFrom-Json -Depth 20
-                } else {
-                    throw "Purview extraction script string-array output is not JSON"
-                }
-            } else {
-                $resultItems = @($scriptOutput)
-            }
+        $parsedOutput = Try-ParseJsonFromScriptOutput -Output $scriptOutput
+        $rawOutputText = [string]$parsedOutput.rawText
+
+        if ($scriptOutput -is [string] -or $scriptOutput -is [System.Array]) {
+            $resultObj = $parsedOutput.parsed
         } else {
             $resultObj = $scriptOutput
+        }
+
+        if ($scriptOutput -is [System.Array] -and $null -eq $resultObj) {
+            $objectItems = @($scriptOutput | Where-Object {
+                $null -ne $_ -and $_ -isnot [string] -and $_ -isnot [System.Management.Automation.ErrorRecord]
+            })
+            if ($objectItems.Count -gt 0) {
+                $resultItems = $objectItems
+            }
         }
 
         if ($resultItems.Count -eq 0 -and $null -ne $resultObj) {
@@ -361,7 +556,7 @@ function Invoke-PurviewScriptExtraction {
         }
 
         if ($resultItems.Count -eq 0) {
-            throw "Purview extraction script produced no usable stream items"
+            return (New-NonJsonPurviewFallbackResult -RawText $rawOutputText)
         }
 
         $normalizedItems = @()
@@ -371,21 +566,50 @@ function Invoke-PurviewScriptExtraction {
             $itemName = "Message Body"
             $itemLength = 0
 
-            if ($item.PSObject.Properties.Name -contains "ExtractedStreamText") {
-                $itemText = Normalize-OutputText -Value ([string]$item.ExtractedStreamText)
+            if ($item -is [string]) {
+                $itemText = Normalize-OutputText -Value $item
             }
+            elseif ($item -is [System.Management.Automation.ErrorRecord]) {
+                $errorText = if ($item.Exception -and -not [string]::IsNullOrWhiteSpace([string]$item.Exception.Message)) {
+                    [string]$item.Exception.Message
+                } else {
+                    [string]$item
+                }
+                $itemText = Normalize-OutputText -Value $errorText
+            }
+            elseif ($item -is [System.Collections.IDictionary]) {
+                if ($item.Contains("ExtractedStreamText")) {
+                    $itemText = Normalize-OutputText -Value ([string]$item["ExtractedStreamText"])
+                }
+                if ($item.Contains("StreamId")) {
+                    try { $itemId = [int]$item["StreamId"] } catch { $itemId = 0 }
+                }
+                if ($item.Contains("StreamName") -and -not [string]::IsNullOrWhiteSpace([string]$item["StreamName"])) {
+                    $itemName = [string]$item["StreamName"]
+                }
+                if ($item.Contains("StreamTextLength")) {
+                    try { $itemLength = [int]$item["StreamTextLength"] } catch { $itemLength = $itemText.Length }
+                }
+            }
+            else {
+                if ($item.PSObject.Properties.Name -contains "ExtractedStreamText") {
+                    $itemText = Normalize-OutputText -Value ([string]$item.ExtractedStreamText)
+                }
+                if ($item.PSObject.Properties.Name -contains "StreamId") {
+                    try { $itemId = [int]$item.StreamId } catch { $itemId = 0 }
+                }
+                if ($item.PSObject.Properties.Name -contains "StreamName" -and -not [string]::IsNullOrWhiteSpace([string]$item.StreamName)) {
+                    $itemName = [string]$item.StreamName
+                }
+                if ($item.PSObject.Properties.Name -contains "StreamTextLength") {
+                    try { $itemLength = [int]$item.StreamTextLength } catch { $itemLength = $itemText.Length }
+                }
+            }
+
             if ($null -eq $itemText) {
                 $itemText = ""
             }
-            if ($item.PSObject.Properties.Name -contains "StreamId") {
-                try { $itemId = [int]$item.StreamId } catch { $itemId = 0 }
-            }
-            if ($item.PSObject.Properties.Name -contains "StreamName" -and -not [string]::IsNullOrWhiteSpace([string]$item.StreamName)) {
-                $itemName = [string]$item.StreamName
-            }
-            if ($item.PSObject.Properties.Name -contains "StreamTextLength") {
-                try { $itemLength = [int]$item.StreamTextLength } catch { $itemLength = $itemText.Length }
-            } else {
+            if ($itemLength -le 0 -and -not [string]::IsNullOrWhiteSpace($itemText)) {
                 $itemLength = $itemText.Length
             }
 

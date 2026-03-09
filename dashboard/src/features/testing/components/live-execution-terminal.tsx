@@ -16,6 +16,15 @@ type TerminalEvent = {
   done?: boolean;
 };
 
+type CapsuleStatusSnapshot = {
+  status?: string;
+  updatedAt?: string;
+  error?: string;
+  workerResult?: {
+    status?: string;
+  };
+} | null;
+
 type Props = {
   capsuleId: string | null;
   apiBaseUrl: string;
@@ -64,11 +73,13 @@ export default function LiveExecutionTerminal({
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
   const localEventIdRef = useRef(-1);
+  const seenStatusFallbackRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setEvents([]);
     seenIdsRef.current = new Set();
     localEventIdRef.current = -1;
+    seenStatusFallbackRef.current = new Set();
     if (!capsuleId) {
       setConnectionState("idle");
       return;
@@ -118,12 +129,26 @@ export default function LiveExecutionTerminal({
         if (!response.ok) {
           return false;
         }
-        const payload = (await response.json()) as { events?: TerminalEvent[] };
+        const payload = (await response.json()) as { events?: TerminalEvent[]; status?: CapsuleStatusSnapshot };
         const snapshotEvents = payload.events ?? [];
         ingest(snapshotEvents);
+        const statusSnapshot = payload.status ?? null;
+
+        if (snapshotEvents.length === 0 && statusSnapshot?.status) {
+          const statusKey = `${statusSnapshot.status}:${statusSnapshot.updatedAt ?? ""}`;
+          if (!seenStatusFallbackRef.current.has(statusKey)) {
+            seenStatusFallbackRef.current.add(statusKey);
+            appendLocalMessage(
+              statusSnapshot.status === "error" ? "error" : "info",
+              "status",
+              `Status updated: ${statusSnapshot.status}`
+            );
+          }
+        }
 
         const hasDone = snapshotEvents.some((event) => event?.done === true);
-        if (hasDone) {
+        const statusDone = statusSnapshot?.status === "success" || statusSnapshot?.status === "error";
+        if (hasDone || statusDone) {
           setConnectionState("closed");
           if (source) {
             source.close();

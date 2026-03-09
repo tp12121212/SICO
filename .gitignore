@@ -12,8 +12,12 @@ dist/
 coverage/
 .turbo/
 .cache/
+dashboard/.cache/
+dashboard/.turbo/
 dashboard/.next/
 dashboard/out/
+.eslintcache
+dashboard/.eslintcache
 *.tsbuildinfo
 
 # Runtime/process artifacts
@@ -23,6 +27,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+worker/.azurefunctions/
+worker/bin/
+worker/obj/
+worker/.python_packages/
 
 # Local settings and env
 .env

@@ -3,7 +3,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "DEBUG=0"
 set "ACTION="
-set "APP_URL=http://localhost:5173"
+set "APP_URL=https://localhost:5173"
+if "%DASHBOARD_USE_HTTPS%"=="" set "DASHBOARD_USE_HTTPS=1"
 
 set "ROOT_DIR=%~dp0"
 if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
@@ -115,7 +116,14 @@ exit /b 0
 call :start_component api "%ROOT_DIR%" "set MAX_JSON_BODY_MB=80&& set AAD_TENANT_ID=organizations&& set ALLOW_MULTI_TENANT=true&& set AAD_AUDIENCE=api://63eefc68-2d4b-45c0-a619-65b45c5fada9&& set REQUIRED_SCOPES=Capsule.Submit&& set ALLOW_DUMMY_WORKER_FALLBACK=false&& node server/index.js"
 call :preflight_worker_modules
 call :start_component worker "%WORKER_DIR%" "func start"
-call :start_component dashboard "%DASHBOARD_DIR%" "npm run dev"
+if "%DASHBOARD_USE_HTTPS%"=="1" (
+  set "APP_URL=https://localhost:5173"
+  set "DASHBOARD_CMD=npx next dev -p 5173 -H 0.0.0.0 --experimental-https"
+) else (
+  set "APP_URL=http://localhost:5173"
+  set "DASHBOARD_CMD=npm run dev"
+)
+call :start_component dashboard "%DASHBOARD_DIR%" "!DASHBOARD_CMD!"
 echo All components started.
 if "%DEBUG%"=="1" (
   echo Debug mode enabled: component output is attached to this console.

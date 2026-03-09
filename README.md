@@ -84,6 +84,50 @@ Open [http://localhost:5173](http://localhost:5173).
 
 These orchestrate dashboard, API, and worker processes.
 
+## HTTPS for Mobile (iOS/Android)
+
+Microsoft sign-in in browser requires a secure context (HTTPS + Web Crypto).
+Using `http://192.168.x.x:5173` on mobile will fail auth initialization.
+
+### Local development HTTPS
+
+`appctl` now starts the dashboard with HTTPS by default:
+
+- macOS/Linux: `./appctl.sh start`
+- Windows: `appctl.cmd start`
+
+For macOS/Linux, a local self-signed cert is generated at:
+
+- `.appctl/certs/dashboard-dev-cert.pem`
+- `.appctl/certs/dashboard-dev-key.pem`
+
+You can pre-generate/regenerate it manually:
+
+```bash
+./scripts/generate-dev-https-cert.sh
+```
+
+Optional flags:
+
+```bash
+DEV_CERT_FORCE=1 DEV_CERT_HOSTS="sico.local,192.168.0.168" ./scripts/generate-dev-https-cert.sh
+```
+
+### Production HTTPS (recommended)
+
+Use a real domain and terminate TLS at a reverse proxy (Caddy/Nginx/Traefik) with Let’s Encrypt.
+
+Example Caddyfile:
+
+```txt
+purview.example.com {
+  reverse_proxy /api/* 127.0.0.1:3001
+  reverse_proxy 127.0.0.1:5173
+}
+```
+
+Then configure Entra app SPA redirect URIs to the exact HTTPS origin (for example `https://purview.example.com/`).
+
 ## Notes
 
 - `func start` requires .NET + PowerShell worker runtime support.

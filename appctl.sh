@@ -13,7 +13,12 @@ WORKER_DIR="$ROOT_DIR/worker"
 mkdir -p "$LOG_DIR" "$PID_DIR"
 DEBUG=0
 ACTION=""
-APP_URL="http://localhost:5173"
+APP_URL="https://localhost:5173"
+DASHBOARD_HOSTNAME="${DASHBOARD_HOSTNAME:-0.0.0.0}"
+DASHBOARD_USE_HTTPS="${DASHBOARD_USE_HTTPS:-1}"
+CERT_DIR="$STATE_DIR/certs"
+CERT_KEY="$CERT_DIR/dashboard-dev-key.pem"
+CERT_CERT="$CERT_DIR/dashboard-dev-cert.pem"
 
 usage() {
   echo "Usage: $0 [--debug] {start|stop|restart}"
@@ -99,6 +104,25 @@ open_browser() {
   echo "Could not open browser automatically. Open $APP_URL manually."
 }
 
+ensure_dashboard_https_cert() {
+  if [[ "$DASHBOARD_USE_HTTPS" != "1" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$CERT_DIR"
+  if [[ -f "$CERT_KEY" && -f "$CERT_CERT" ]]; then
+    return 0
+  fi
+
+  if [[ -x "$ROOT_DIR/scripts/generate-dev-https-cert.sh" ]]; then
+    if [[ "$DEBUG" -eq 1 ]]; then
+      CERT_DIR="$CERT_DIR" CERT_KEY="$CERT_KEY" CERT_CERT="$CERT_CERT" "$ROOT_DIR/scripts/generate-dev-https-cert.sh" || true
+    else
+      CERT_DIR="$CERT_DIR" CERT_KEY="$CERT_KEY" CERT_CERT="$CERT_CERT" "$ROOT_DIR/scripts/generate-dev-https-cert.sh" >>"$LOG_DIR/dashboard-cert.log" 2>&1 || true
+    fi
+  fi
+}
+
 preflight_worker_modules() {
   if ! command -v pwsh >/dev/null 2>&1; then
     echo "pwsh not found; skipping worker module preflight."
@@ -134,10 +158,23 @@ stop_component() {
 }
 
 start_all() {
+  local dashboard_cmd
   start_component "api" "$ROOT_DIR" "env MAX_JSON_BODY_MB=80 AAD_TENANT_ID=organizations ALLOW_MULTI_TENANT=true AAD_AUDIENCE=api://63eefc68-2d4b-45c0-a619-65b45c5fada9 REQUIRED_SCOPES=Capsule.Submit ALLOW_DUMMY_WORKER_FALLBACK=false node server/index.js"
   preflight_worker_modules
   start_component "worker" "$WORKER_DIR" "func start"
-  start_component "dashboard" "$DASHBOARD_DIR" "npm run dev"
+  if [[ "$DASHBOARD_USE_HTTPS" == "1" ]]; then
+    ensure_dashboard_https_cert
+    APP_URL="${APP_URL_OVERRIDE:-https://localhost:5173}"
+    if [[ -f "$CERT_KEY" && -f "$CERT_CERT" ]]; then
+      dashboard_cmd="npx next dev -p 5173 -H $DASHBOARD_HOSTNAME --experimental-https --experimental-https-key \"$CERT_KEY\" --experimental-https-cert \"$CERT_CERT\""
+    else
+      dashboard_cmd="npx next dev -p 5173 -H $DASHBOARD_HOSTNAME --experimental-https"
+    fi
+  else
+    APP_URL="${APP_URL_OVERRIDE:-http://localhost:5173}"
+    dashboard_cmd="npm run dev"
+  fi
+  start_component "dashboard" "$DASHBOARD_DIR" "$dashboard_cmd"
   echo "All components started."
   if [[ "$DEBUG" -eq 1 ]]; then
     echo "Debug mode enabled: component output is attached to this console."

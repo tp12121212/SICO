@@ -3,11 +3,17 @@
 import {
   InteractionRequiredAuthError,
   PublicClientApplication,
-  type AccountInfo
+  type AccountInfo,
+  type PublicClientApplication as PublicClientApplicationType
 } from "@azure/msal-browser";
 import { useEffect, useMemo, useRef, useState } from "react";
 import LiveExecutionTerminal from "@/features/testing/components/live-execution-terminal";
 import { buildApiUrl } from "@/features/testing/lib/api-url";
+import {
+  getMsalUnsupportedReason,
+  shouldFallbackToRedirect,
+  shouldUseRedirectAuthFlow
+} from "@/features/testing/lib/msal-support";
 
 type ClassificationMatch = Record<string, unknown>;
 type DisplayField = {
@@ -58,27 +64,34 @@ const apiScope = process.env.NEXT_PUBLIC_API_SCOPE ?? `api://${aadClientId}/Caps
 const maxUploadMb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 10);
 const dataClassificationPrefillStorageKey = "sico.testing.dataClassification.prefill";
 
-const msal = new PublicClientApplication({
-  auth: {
-    clientId: aadClientId,
-    authority: aadAuthority,
-    redirectUri: typeof window !== "undefined" ? window.location.origin : "http://localhost:5173"
-  },
-  cache: {
-    cacheLocation: "sessionStorage"
+function getRedirectStartPage(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
   }
-});
+  return window.location.href;
+}
 
-async function getAccessToken(account: AccountInfo): Promise<string> {
+async function getAccessToken(
+  msalClient: PublicClientApplicationType,
+  account: AccountInfo,
+  useRedirectFlow: boolean
+): Promise<string> {
   try {
-    const result = await msal.acquireTokenSilent({
+    const result = await msalClient.acquireTokenSilent({
       account,
       scopes: ["openid", "profile", apiScope]
     });
     return result.accessToken;
   } catch (error) {
     if (error instanceof InteractionRequiredAuthError) {
-      const result = await msal.acquireTokenPopup({ scopes: ["openid", "profile", apiScope] });
+      if (useRedirectFlow) {
+        await msalClient.acquireTokenRedirect({
+          scopes: ["openid", "profile", apiScope],
+          redirectStartPage: getRedirectStartPage()
+        });
+        throw new Error("Redirecting to Microsoft sign-in...");
+      }
+      const result = await msalClient.acquireTokenPopup({ scopes: ["openid", "profile", apiScope] });
       return result.accessToken;
     }
     throw error;
@@ -506,13 +519,50 @@ export default function TestDataClassificationPage() {
   const [autoRunPending, setAutoRunPending] = useState(false);
   const [prefillSourceFileName, setPrefillSourceFileName] = useState<string | null>(null);
   const [activeCapsuleId, setActiveCapsuleId] = useState<string | null>(null);
+  const [preferRedirectAuth, setPreferRedirectAuth] = useState(false);
   const autoRunTriggeredRef = useRef(false);
+  const msalRef = useRef<PublicClientApplicationType | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     void (async () => {
       try {
-        await msal.initialize();
-        const existingAccounts = msal.getAllAccounts();
+        const unsupportedReason = getMsalUnsupportedReason();
+        if (unsupportedReason) {
+          if (!cancelled) {
+            setMsalReady(false);
+            setStatus(`Auth unavailable: ${unsupportedReason}`);
+          }
+          return;
+        }
+
+        const preferRedirect = shouldUseRedirectAuthFlow();
+        setPreferRedirectAuth(preferRedirect);
+        const cacheLocation = preferRedirect ? "localStorage" : "sessionStorage";
+
+        const client = new PublicClientApplication({
+          auth: {
+            clientId: aadClientId,
+            authority: aadAuthority,
+            redirectUri: window.location.origin,
+            navigateToLoginRequestUrl: true
+          },
+          cache: {
+            cacheLocation
+          }
+        });
+        msalRef.current = client;
+
+        await client.initialize();
+        const redirectResult = await client.handleRedirectPromise();
+        const existingAccounts = redirectResult?.account
+          ? [redirectResult.account]
+          : client.getAllAccounts();
+        if (cancelled) {
+          return;
+        }
+
         if (existingAccounts.length > 0) {
           setAccount(existingAccounts[0]);
           setStatus(`Signed in as ${existingAccounts[0].username}`);
@@ -521,9 +571,16 @@ export default function TestDataClassificationPage() {
         }
         setMsalReady(true);
       } catch (error) {
-        setStatus(`Auth init failed: ${formatError(error)}`);
+        if (!cancelled) {
+          setStatus(`Auth init failed: ${formatError(error)}`);
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+      msalRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -575,17 +632,43 @@ export default function TestDataClassificationPage() {
   const totalMatches = typeof workerResult?.totalMatches === "number" ? workerResult.totalMatches : matches.length;
 
   const signIn = async (): Promise<void> => {
-    if (!msalReady) {
-      setStatus("Auth still initializing");
+    const msalClient = msalRef.current;
+    if (!msalReady || !msalClient) {
+      setStatus("Auth unavailable. Use HTTPS and a browser with Web Crypto support.");
       return;
     }
 
     try {
       setStatus("Signing in...");
-      const result = await msal.loginPopup({ scopes: ["openid", "profile", apiScope] });
-      setAccount(result.account);
-      setStatus(`Signed in as ${result.account?.username ?? "user"}`);
+      if (preferRedirectAuth) {
+        await msalClient.loginRedirect({
+          scopes: ["openid", "profile", apiScope],
+          redirectStartPage: getRedirectStartPage()
+        });
+        return;
+      }
+
+      const result = await msalClient.loginPopup({ scopes: ["openid", "profile", apiScope] });
+      if (result.account) {
+        setAccount(result.account);
+        setStatus(`Signed in as ${result.account.username}`);
+      } else {
+        setStatus("Signed in");
+      }
     } catch (error) {
+      if (!preferRedirectAuth && shouldFallbackToRedirect(error)) {
+        try {
+          setStatus("Popup not supported on this device. Redirecting to sign-in...");
+          await msalClient.loginRedirect({
+            scopes: ["openid", "profile", apiScope],
+            redirectStartPage: getRedirectStartPage()
+          });
+          return;
+        } catch (redirectError) {
+          setStatus(`Sign in failed: ${formatError(redirectError)}`);
+          return;
+        }
+      }
       setStatus(`Sign in failed: ${formatError(error)}`);
     }
   };
@@ -614,8 +697,14 @@ export default function TestDataClassificationPage() {
     }
 
     try {
+      const msalClient = msalRef.current;
+      if (!msalClient) {
+        setStatus("Auth unavailable. Use HTTPS and sign in again.");
+        return;
+      }
+
       setStatus("Acquiring token...");
-      const token = await getAccessToken(account);
+      const token = await getAccessToken(msalClient, account, preferRedirectAuth);
 
       const params: Record<string, unknown> = {
         runAllSits: true
@@ -668,6 +757,10 @@ export default function TestDataClassificationPage() {
         setStatus("Data classification complete: no SIT matches");
       }
     } catch (error) {
+      if (error instanceof Error && error.message.includes("Redirecting to Microsoft sign-in")) {
+        setStatus(error.message);
+        return;
+      }
       setStatus(`Submit failed: ${formatError(error)}`);
     }
   };

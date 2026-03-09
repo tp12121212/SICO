@@ -7,6 +7,24 @@ const WORKER_TIMEOUT_MS = Number(process.env.WORKER_TIMEOUT_MS ?? 900000);
 const CAPSULE_STREAM_MAX_EVENTS = Number(process.env.CAPSULE_STREAM_MAX_EVENTS ?? 400);
 const CAPSULE_STREAM_RETENTION_MS = Number(process.env.CAPSULE_STREAM_RETENTION_MS ?? 30 * 60 * 1000);
 app.use(express.json({ limit: `${MAX_JSON_BODY_MB}mb` }));
+
+function isAllowedDevOrigin(origin) {
+  const normalized = origin.toLowerCase();
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) {
+    return true;
+  }
+  if (/^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(normalized)) {
+    return true;
+  }
+  if (/^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(normalized)) {
+    return true;
+  }
+  if (/^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (!origin) {
@@ -14,11 +32,7 @@ app.use((req, res, next) => {
     return;
   }
 
-  if (
-    origin === "http://localhost:5173" ||
-    origin === "http://127.0.0.1:5173" ||
-    origin === "http://localhost:3000"
-  ) {
+  if (isAllowedDevOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -459,9 +473,29 @@ async function invokeWorker(capsule) {
 }
 
 function saveStatus(capsuleId, state) {
+  const previous = statusStore.get(capsuleId);
   statusStore.set(capsuleId, {
     ...state,
     updatedAt: toIsoTimestamp()
+  });
+
+  const nextStatus = typeof state?.status === "string" ? state.status : null;
+  const previousStatus = typeof previous?.status === "string" ? previous.status : null;
+  if (!nextStatus || nextStatus === previousStatus) {
+    return;
+  }
+
+  const level = nextStatus === "success" ? "success" : nextStatus === "error" ? "error" : "info";
+  emitCapsuleLog(capsuleId, {
+    level,
+    phase: "status",
+    message: `Status updated: ${nextStatus}`,
+    data:
+      nextStatus === "success"
+        ? { workerStatus: state?.workerResult?.status ?? "unknown" }
+        : nextStatus === "error"
+          ? { error: state?.error ?? "Unknown error" }
+          : undefined
   });
 }
 
@@ -545,9 +579,11 @@ app.get("/api/capsule/:capsuleId/events", (req, res) => {
   }
 
   const entry = capsuleStreamStore.get(capsuleId);
+  const status = statusStore.get(capsuleId) ?? null;
   res.status(200).json({
     capsuleId,
-    events: entry ? entry.events : []
+    events: entry ? entry.events : [],
+    status
   });
 });
 
@@ -662,6 +698,9 @@ app.post("/api/capsule", async (req, res) => {
         : 500;
 
     console.error("Capsule processing failed", { error: message });
+    if (requestCapsuleId) {
+      saveStatus(requestCapsuleId, { status: "error", error: message });
+    }
     if (requestCapsuleId) {
       emitCapsuleLog(requestCapsuleId, {
         level: "error",
