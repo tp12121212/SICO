@@ -48,6 +48,8 @@ const REQUIRED_SCOPES = (
 const WORKER_DLP_URL = process.env.WORKER_DLP_URL ?? "http://localhost:7071/api/createDLP";
 const WORKER_TEXT_EXTRACTION_URL =
   process.env.WORKER_TEXT_EXTRACTION_URL ?? "http://localhost:7071/api/textExtraction";
+const WORKER_DATA_CLASSIFICATION_URL =
+  process.env.WORKER_DATA_CLASSIFICATION_URL ?? "http://localhost:7071/api/dataClassification";
 const SKIP_JWT_VALIDATION = process.env.SKIP_JWT_VALIDATION === "true";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const ALLOW_DUMMY_WORKER_FALLBACK = process.env.ALLOW_DUMMY_WORKER_FALLBACK !== "false";
@@ -62,6 +64,9 @@ const COMMAND_REGISTRY = {
   },
   TextExtraction: {
     workerUrl: WORKER_TEXT_EXTRACTION_URL
+  },
+  DataClassification: {
+    workerUrl: WORKER_DATA_CLASSIFICATION_URL
   }
 };
 const statusStore = new Map();
@@ -74,6 +79,9 @@ function pickAuditView(capsule) {
   const params = capsule?.params && typeof capsule.params === "object" ? { ...capsule.params } : {};
   if (typeof params.fileContent === "string") {
     params.fileContent = `<redacted-base64:${params.fileContent.length} chars>`;
+  }
+  if (typeof params.inputText === "string") {
+    params.inputText = `<redacted-text:${params.inputText.length} chars>`;
   }
   return {
     capsuleId: capsule.capsuleId,
@@ -228,7 +236,7 @@ async function validateAccessToken(authorizationHeader) {
 async function invokeWorker(capsule) {
   const workerUrl = COMMAND_REGISTRY[capsule.action].workerUrl;
   const workerRequest =
-    capsule.action === "TextExtraction"
+    capsule.action === "TextExtraction" || capsule.action === "DataClassification"
       ? {
           action: capsule.action,
           params: capsule.params,
@@ -280,7 +288,12 @@ async function invokeWorker(capsule) {
     });
 
     return {
-      status: capsule.action === "TextExtraction" ? "extracted" : "created",
+      status:
+        capsule.action === "TextExtraction"
+          ? "extracted"
+          : capsule.action === "DataClassification"
+            ? "classified"
+            : "created",
       policyName: capsule.params?.name,
       text: capsule.params?.fileContent ? "<dummy-text-extraction-result>" : undefined,
       mode: "dummy-fallback",
@@ -336,7 +349,7 @@ app.post("/api/capsule", async (req, res) => {
     const capsule = req.body;
     const userPrincipalName = resolveUserPrincipalName(tokenPayload, capsule);
     const workerCapsule =
-      capsule.action === "TextExtraction"
+      capsule.action === "TextExtraction" || capsule.action === "DataClassification"
         ? {
             ...capsule,
             params: {

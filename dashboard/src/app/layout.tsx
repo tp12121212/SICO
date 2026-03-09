@@ -14,11 +14,20 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | NextAdmin - Next.js Dashboard Kit",
-    default: "NextAdmin - Next.js Dashboard Kit",
+    template: "%s | Purview Workbench",
+    default: "Purview Workbench",
   },
   description:
-    "Next.js admin dashboard toolkit with 200+ templates, UI components, and integrations for fast dashboard development.",
+    "Purview Workbench for text extraction, data classification testing, SIT recipe browsing, and DLP workflow scaffolding.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/favicon.png", type: "image/png" }
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png" }
+    ]
+  }
 };
 
 export default function RootLayout({ children }: PropsWithChildren) {

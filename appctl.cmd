@@ -113,6 +113,7 @@ exit /b 0
 
 :start_all
 call :start_component api "%ROOT_DIR%" "set MAX_JSON_BODY_MB=80&& set AAD_TENANT_ID=organizations&& set ALLOW_MULTI_TENANT=true&& set AAD_AUDIENCE=api://63eefc68-2d4b-45c0-a619-65b45c5fada9&& set REQUIRED_SCOPES=Capsule.Submit&& set ALLOW_DUMMY_WORKER_FALLBACK=false&& node server/index.js"
+call :preflight_worker_modules
 call :start_component worker "%WORKER_DIR%" "func start"
 call :start_component dashboard "%DASHBOARD_DIR%" "npm run dev"
 echo All components started.
@@ -120,6 +121,33 @@ if "%DEBUG%"=="1" (
   echo Debug mode enabled: component output is attached to this console.
 ) else (
   echo Logs: %LOG_DIR%
+)
+call :open_browser
+goto :eof
+
+:preflight_worker_modules
+echo Preflighting worker module (ExchangeOnlineManagement)...
+if "%DEBUG%"=="1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$repo = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue; if ($repo) { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue | Out-Null }; if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) { if (Get-Command -Name Install-Module -ErrorAction SilentlyContinue) { Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null } }; Import-Module ExchangeOnlineManagement -ErrorAction Stop | Out-Null; Write-Host 'ExchangeOnlineManagement preflight ready'" >nul 2>&1
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$repo = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue; if ($repo) { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue | Out-Null }; if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) { if (Get-Command -Name Install-Module -ErrorAction SilentlyContinue) { Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null } }; Import-Module ExchangeOnlineManagement -ErrorAction Stop | Out-Null; Write-Host 'ExchangeOnlineManagement preflight ready'" >>"%LOG_DIR%\worker-preflight.log" 2>&1
+)
+goto :eof
+
+:open_browser
+if /I "%NO_BROWSER%"=="1" (
+  echo Skipping browser launch (NO_BROWSER enabled).
+  goto :eof
+)
+if /I "%HEADLESS%"=="1" (
+  echo Skipping browser launch (HEADLESS enabled).
+  goto :eof
+)
+if /I "%CI%"=="1" (
+  echo Skipping browser launch (CI enabled).
+  goto :eof
 )
 timeout /t 5 /nobreak >nul
 start "" "%APP_URL%"

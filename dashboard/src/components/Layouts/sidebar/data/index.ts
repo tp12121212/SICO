@@ -5,12 +5,16 @@ export const NAV_DATA = [
     label: "SICO",
     items: [
       {
-        title: "Test Text Extraction",
+        title: "Testing",
         icon: Icons.HomeIcon,
         items: [
           {
-            title: "Run Extraction",
-            url: "/"
+            title: "Text Extraction",
+            url: "/testing/test-text-extraction"
+          },
+          {
+            title: "Test Data Classification",
+            url: "/testing/test-data-classification"
           }
         ]
       },
@@ -25,6 +29,20 @@ export const NAV_DATA = [
           {
             title: "DLP Library",
             url: "/purview-recipes/dlp-library"
+          }
+        ]
+      },
+      {
+        title: "Build",
+        icon: Icons.Alphabet,
+        items: [
+          {
+            title: "SIT Builder",
+            url: "/build/sit-builder"
+          },
+          {
+            title: "DLP Builder",
+            url: "/build/dlp-builder"
           }
         ]
       }

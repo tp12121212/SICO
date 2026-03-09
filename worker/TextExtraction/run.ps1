@@ -171,18 +171,55 @@ function Resolve-PurviewScriptPath {
     return $null
 }
 
-function Ensure-ComplianceSessionSupport {
-    if (Get-Command -Name Connect-IPPSSession -ErrorAction SilentlyContinue) {
-        return
+function Has-ExchangeOnlineSupport {
+    return (Get-Command -Name Connect-ExchangeOnline -ErrorAction SilentlyContinue) -or
+        (Get-Command -Name Connect-IPPSSession -ErrorAction SilentlyContinue)
+}
+
+function Add-CommonModulePaths {
+    $separator = [System.IO.Path]::PathSeparator
+    $candidates = @(
+        (Join-Path $HOME ".local/share/powershell/Modules"),
+        (Join-Path $HOME "Documents/PowerShell/Modules"),
+        "/usr/local/share/powershell/Modules",
+        "/opt/homebrew/share/powershell/Modules"
+    )
+
+    $currentPaths = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:PSModulePath)) {
+        $currentPaths = @($env:PSModulePath -split [regex]::Escape($separator))
     }
 
-    $maxAttempts = 15
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $candidate)) {
+            continue
+        }
+        if ($currentPaths -contains $candidate) {
+            continue
+        }
+        $currentPaths = @($candidate) + $currentPaths
+    }
+
+    $env:PSModulePath = ($currentPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join $separator
+}
+
+function Ensure-ComplianceSessionSupport {
+    Add-CommonModulePaths
+    if (Has-ExchangeOnlineSupport) {
+        return $true
+    }
+
+    $maxAttempts = 30
     $sleepSeconds = 2
     $lastError = $null
+    $installAttempted = $false
 
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        if (Get-Command -Name Connect-IPPSSession -ErrorAction SilentlyContinue) {
-            return
+        if (Has-ExchangeOnlineSupport) {
+            return $true
         }
 
         try {
@@ -201,8 +238,21 @@ function Ensure-ComplianceSessionSupport {
             $lastError = $_
         }
 
-        if (Get-Command -Name Connect-IPPSSession -ErrorAction SilentlyContinue) {
-            return
+        if (-not $installAttempted -and $attempt -ge 4 -and -not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
+            $installAttempted = $true
+            try {
+                Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue | Out-Null
+                Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null
+                Add-CommonModulePaths
+                Import-Module ExchangeOnlineManagement -Force -ErrorAction Stop | Out-Null
+            }
+            catch {
+                $lastError = $_
+            }
+        }
+
+        if (Has-ExchangeOnlineSupport) {
+            return $true
         }
 
         if ($attempt -lt $maxAttempts) {
@@ -215,7 +265,8 @@ function Ensure-ComplianceSessionSupport {
     } else {
         "unknown import error"
     }
-    throw ("ExchangeOnlineManagement module is not available in the Functions worker after retries. Last error: {0}" -f $lastErrorMessage)
+    Write-Warning ("ExchangeOnlineManagement module is not available in the Functions worker after retries. Last error: {0}" -f $lastErrorMessage)
+    return $false
 }
 
 function Invoke-PurviewScriptExtraction {
@@ -249,12 +300,28 @@ function Invoke-PurviewScriptExtraction {
     $tempFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sico-upload-{0}{1}" -f [Guid]::NewGuid().ToString("N"), $extension)
 
     try {
-        Ensure-ComplianceSessionSupport
-
         $bytes = [Convert]::FromBase64String($FileContent)
         [System.IO.File]::WriteAllBytes($tempFile, $bytes)
 
-        $scriptOutput = & $scriptPath -UserPrincipalName $UserPrincipalName -MacFile $tempFile
+        $scriptOutput = $null
+        $preflightReady = Ensure-ComplianceSessionSupport
+
+        try {
+            $scriptOutput = & $scriptPath -UserPrincipalName $UserPrincipalName -MacFile $tempFile
+        }
+        catch {
+            $errorMessage = if ($_.Exception -and $_.Exception.Message) { $_.Exception.Message } else { "Purview extraction script execution failed" }
+            $looksLikeComplianceInit = $errorMessage -match "Connect-IPPSSession|ExchangeOnlineManagement|Connect-ExchangeOnline"
+            if ($preflightReady -eq $false -and $looksLikeComplianceInit) {
+                # First invocation can race module/session initialization; retry once in-request.
+                Start-Sleep -Seconds 6
+                [void](Ensure-ComplianceSessionSupport)
+                $scriptOutput = & $scriptPath -UserPrincipalName $UserPrincipalName -MacFile $tempFile
+            }
+            else {
+                throw
+            }
+        }
 
         if ($null -eq $scriptOutput) {
             throw "Purview extraction script returned no output"

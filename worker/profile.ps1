@@ -21,14 +21,25 @@ if ($env:MSI_SECRET) {
 
 # You can also define functions or aliases that can be referenced in any of your PowerShell functions.
 
-# Ensure local user PowerShell modules are visible to the Functions worker (macOS/Linux dev machines).
-$userModulePath = Join-Path $HOME ".local/share/powershell/Modules"
-if (Test-Path -LiteralPath $userModulePath) {
-    $separator = [System.IO.Path]::PathSeparator
-    if (-not $env:PSModulePath.Split($separator) -contains $userModulePath) {
-        $env:PSModulePath = "$userModulePath$separator$env:PSModulePath"
-    }
+# Ensure common local module locations are visible to the Functions worker.
+$separator = [System.IO.Path]::PathSeparator
+$modulePaths = @(
+    (Join-Path $HOME ".local/share/powershell/Modules"),
+    (Join-Path $HOME "Documents/PowerShell/Modules"),
+    "/usr/local/share/powershell/Modules",
+    "/opt/homebrew/share/powershell/Modules"
+)
+$currentPaths = @()
+if (-not [string]::IsNullOrWhiteSpace($env:PSModulePath)) {
+    $currentPaths = @($env:PSModulePath -split [regex]::Escape($separator))
 }
+foreach ($path in $modulePaths) {
+    if ([string]::IsNullOrWhiteSpace($path)) { continue }
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    if ($currentPaths -contains $path) { continue }
+    $currentPaths = @($path) + $currentPaths
+}
+$env:PSModulePath = ($currentPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join $separator
 
 # Preload ExchangeOnlineManagement when available so Connect-IPPSSession resolves in function scripts.
 try {

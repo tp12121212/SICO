@@ -1,26 +1,15 @@
-import darkLogo from "@/assets/logos/dark.svg";
-import logo from "@/assets/logos/main.svg";
 import Image from "next/image";
 
 export function Logo() {
   return (
-    <div className="relative h-8 max-w-[10.847rem]">
+    <div className="relative h-[42px] w-[220px]">
       <Image
-        src={logo}
+        src="/images/logo/purview-workbench-brand-compact.png"
+        alt="Purview Workbench"
         fill
-        className="dark:hidden"
-        alt="NextAdmin logo"
-        role="presentation"
-        quality={100}
-      />
-
-      <Image
-        src={darkLogo}
-        fill
-        className="hidden dark:block"
-        alt="NextAdmin logo"
-        role="presentation"
-        quality={100}
+        className="object-contain object-left"
+        sizes="220px"
+        priority
       />
     </div>
   );

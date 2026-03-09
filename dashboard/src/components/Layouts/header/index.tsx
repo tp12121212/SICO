@@ -24,11 +24,10 @@ export function Header() {
       {isMobile && (
         <Link href={"/"} className="ml-2 max-[430px]:hidden min-[375px]:ml-4">
           <Image
-            src={"/images/logo/logo-icon.svg"}
+            src={"/images/logo/purview-workbench-mark-32.png"}
             width={32}
             height={32}
-            alt=""
-            role="presentation"
+            alt="Purview Workbench"
           />
         </Link>
       )}
@@ -37,7 +36,7 @@ export function Header() {
         <h1 className="mb-0.5 text-heading-5 font-bold text-dark dark:text-white">
           Dashboard
         </h1>
-        <p className="font-medium">Next.js Admin Dashboard Solution</p>
+        <p className="font-medium">Purview Workbench</p>
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-2 min-[375px]:gap-4">

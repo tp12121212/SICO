@@ -70,6 +70,7 @@ export type NormalizedSitPattern = {
   updated?: string;
   author?: string;
   source?: string;
+  provenance_type: "Built-in" | "Custom";
   license?: string;
   extra: JsonObject;
 };
@@ -78,6 +79,7 @@ export type SitLibraryQuery = {
   search?: string;
   type?: string;
   engine?: string;
+  author?: string;
   sort?: "name_asc" | "name_desc" | "risk_desc" | "updated_desc";
 };
 
@@ -88,4 +90,5 @@ export type SitLibraryResult = {
   items: NormalizedSitPattern[];
   availableTypes: string[];
   availableEngines: string[];
+  availableAuthors: string[];
 };

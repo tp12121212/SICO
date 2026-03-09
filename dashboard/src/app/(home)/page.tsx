@@ -1,420 +1,224 @@
-"use client";
+import Link from "next/link";
 
-import {
-  InteractionRequiredAuthError,
-  PublicClientApplication,
-  type AccountInfo
-} from "@azure/msal-browser";
-import { useEffect, useState } from "react";
-
-type WorkerResult = {
-  status?: string;
-  text?: string;
-  ExtractedStreamText?: string;
-  StreamTextLength?: number;
-  StreamId?: number;
-  StreamName?: string;
-  Streams?: Array<{
-    StreamId?: number;
-    StreamName?: string;
-    StreamTextLength?: number;
-    ExtractedStreamText?: string;
-  }>;
-  message?: string;
-  extractionMethod?: string;
-};
-
-const aadClientId = process.env.NEXT_PUBLIC_AAD_CLIENT_ID ?? "63eefc68-2d4b-45c0-a619-65b45c5fada9";
-const aadAuthority = process.env.NEXT_PUBLIC_AAD_AUTHORITY ?? "https://login.microsoftonline.com/organizations";
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-const apiScope = process.env.NEXT_PUBLIC_API_SCOPE ?? `api://${aadClientId}/Capsule.Submit`;
-const maxUploadMb = Number(process.env.NEXT_PUBLIC_MAX_UPLOAD_MB ?? 10);
-
-const msal = new PublicClientApplication({
-  auth: {
-    clientId: aadClientId,
-    authority: aadAuthority,
-    redirectUri: typeof window !== "undefined" ? window.location.origin : "http://localhost:5173"
-  },
-  cache: {
-    cacheLocation: "sessionStorage"
-  }
-});
-
-async function getAccessToken(account: AccountInfo): Promise<string> {
-  try {
-    const result = await msal.acquireTokenSilent({
-      account,
-      scopes: ["openid", "profile", apiScope]
-    });
-    return result.accessToken;
-  } catch (error) {
-    if (error instanceof InteractionRequiredAuthError) {
-      const result = await msal.acquireTokenPopup({ scopes: ["openid", "profile", apiScope] });
-      return result.accessToken;
-    }
-    throw error;
-  }
-}
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
-function createCapsule(input: { userId: string; tenant: string; fileName: string; fileContent: string }) {
-  const now = new Date();
-  const capsuleId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `capsule-${Date.now()}`;
-
-  return {
-    schemaVersion: "1.0",
-    capsuleId,
-    tenant: input.tenant,
-    userId: input.userId,
-    action: "TextExtraction",
-    params: {
-      fileName: input.fileName,
-      fileContent: input.fileContent
-    },
-    issuedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
-    signature: `dummy-signature:${capsuleId}`
-  };
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-async function toBase64(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  return bytesToBase64(new Uint8Array(buffer));
-}
-
-function getFileExtension(fileName: string): string {
-  const lastDot = fileName.lastIndexOf(".");
-  if (lastDot < 0) {
-    return "";
-  }
-  return fileName.slice(lastDot).toLowerCase();
-}
-
-function getLeafName(value: string): string {
-  const normalized = value.replace(/\\/g, "/");
-  const parts = normalized.split("/");
-  return parts[parts.length - 1] || value;
-}
-
-type DisplaySection = {
-  key: string;
+type FeatureCard = {
   title: string;
-  text: string;
-  streamName: string;
-  streamId: number;
-  streamTextLength: number;
+  description: string;
+  href: string;
+  cta: string;
 };
 
-function buildDisplaySections(
-  ext: string,
-  streams: NonNullable<WorkerResult["Streams"]>
-): DisplaySection[] {
-  if (streams.length === 0) {
-    return [];
+const featureCards: FeatureCard[] = [
+  {
+    title: "Testing",
+    description:
+      "Run text extraction and data classification using the same SICO API/worker pipeline used by the rest of the platform.",
+    href: "/testing/test-text-extraction",
+    cta: "Open testing tools"
+  },
+  {
+    title: "Purview Recipes",
+    description:
+      "Browse SIT and DLP recipe libraries with normalized metadata, technical detail, provenance, and source references.",
+    href: "/purview-recipes/sit-library",
+    cta: "Open recipe library"
+  },
+  {
+    title: "Build",
+    description:
+      "Use SIT Builder and DLP Builder scaffolds to progress toward deterministic rule-pack generation and deployment automation.",
+    href: "/build/sit-builder",
+    cta: "Open build area"
   }
+];
 
-  const isMessageContainer = ext === ".msg" || ext === ".eml";
-  const isArchiveContainer = ext === ".zip" || ext === ".7z" || ext === ".rar";
-  const sorted = [...streams].sort((a, b) => {
-    const ida = typeof a.StreamId === "number" ? a.StreamId : 0;
-    const idb = typeof b.StreamId === "number" ? b.StreamId : 0;
-    if (ida !== idb) {
-      return ida - idb;
-    }
-    return (a.StreamName ?? "").localeCompare(b.StreamName ?? "");
-  });
+const quickLinks = [
+  { label: "Text Extraction", href: "/testing/test-text-extraction" },
+  { label: "Test Data Classification", href: "/testing/test-data-classification" },
+  { label: "SIT Library", href: "/purview-recipes/sit-library" },
+  { label: "DLP Library", href: "/purview-recipes/dlp-library" },
+  { label: "SIT Builder", href: "/build/sit-builder" },
+  { label: "DLP Builder", href: "/build/dlp-builder" }
+];
 
-  const leafNameCounts = new Map<string, number>();
-  for (const stream of sorted) {
-    const rawName = stream.StreamName ?? "Stream";
-    const leaf = getLeafName(rawName);
-    leafNameCounts.set(leaf, (leafNameCounts.get(leaf) ?? 0) + 1);
-  }
+function PlatformFlowDiagram() {
+  return (
+    <svg
+      className="h-auto w-full rounded-xl border border-stroke bg-white p-3 dark:border-dark-3 dark:bg-dark-2"
+      viewBox="0 0 1040 230"
+      role="img"
+      aria-label="SICO platform flow"
+    >
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" fill="#5750F1" />
+        </marker>
+      </defs>
+      <rect x="20" y="60" width="170" height="96" rx="12" fill="#EEF2FF" stroke="#5750F1" />
+      <text x="105" y="96" textAnchor="middle" fontSize="16" fill="#1A2231" fontWeight="600">
+        Ingest
+      </text>
+      <text x="105" y="120" textAnchor="middle" fontSize="12" fill="#364153">
+        file upload
+      </text>
 
-  return sorted.map((stream, index) => {
-    const rawName = stream.StreamName ?? `Stream ${index + 1}`;
-    let title = rawName;
-    const streamId = typeof stream.StreamId === "number" ? stream.StreamId : index;
-    const streamTextLength = typeof stream.StreamTextLength === "number"
-      ? stream.StreamTextLength
-      : (stream.ExtractedStreamText ?? "").length;
+      <rect x="230" y="60" width="190" height="96" rx="12" fill="#ECFDF3" stroke="#12B76A" />
+      <text x="325" y="96" textAnchor="middle" fontSize="16" fill="#1A2231" fontWeight="600">
+        Text Extraction
+      </text>
+      <text x="325" y="120" textAnchor="middle" fontSize="12" fill="#364153">
+        test-textextraction
+      </text>
 
-    if (isMessageContainer) {
-      title = rawName === "Message Body" ? "Message Body" : getLeafName(rawName);
-    } else if (isArchiveContainer) {
-      const leaf = getLeafName(rawName);
-      const duplicateCount = leafNameCounts.get(leaf) ?? 0;
-      title = duplicateCount > 1 ? `${leaf} (${rawName})` : leaf;
-    }
+      <rect x="460" y="60" width="190" height="96" rx="12" fill="#FEF3F2" stroke="#F04438" />
+      <text x="555" y="96" textAnchor="middle" fontSize="16" fill="#1A2231" fontWeight="600">
+        Normalize
+      </text>
+      <text x="555" y="120" textAnchor="middle" fontSize="12" fill="#364153">
+        staged text cleanup
+      </text>
 
-    return {
-      key: `${rawName}-${stream.StreamId ?? index}-${index}`,
-      title,
-      text: stream.ExtractedStreamText ?? "",
-      streamName: rawName,
-      streamId,
-      streamTextLength
-    };
-  });
+      <rect x="690" y="60" width="170" height="96" rx="12" fill="#F4F3FF" stroke="#7A5AF8" />
+      <text x="775" y="96" textAnchor="middle" fontSize="16" fill="#1A2231" fontWeight="600">
+        Classify
+      </text>
+      <text x="775" y="120" textAnchor="middle" fontSize="12" fill="#364153">
+        test-dataclassication
+      </text>
+
+      <rect x="900" y="60" width="120" height="96" rx="12" fill="#FDF2FA" stroke="#EE46BC" />
+      <text x="960" y="96" textAnchor="middle" fontSize="16" fill="#1A2231" fontWeight="600">
+        Outcome
+      </text>
+      <text x="960" y="120" textAnchor="middle" fontSize="12" fill="#364153">
+        evidence
+      </text>
+
+      <line x1="190" y1="108" x2="230" y2="108" stroke="#5750F1" strokeWidth="2.5" markerEnd="url(#arrow)" />
+      <line x1="420" y1="108" x2="460" y2="108" stroke="#5750F1" strokeWidth="2.5" markerEnd="url(#arrow)" />
+      <line x1="650" y1="108" x2="690" y2="108" stroke="#5750F1" strokeWidth="2.5" markerEnd="url(#arrow)" />
+      <line x1="860" y1="108" x2="900" y2="108" stroke="#5750F1" strokeWidth="2.5" markerEnd="url(#arrow)" />
+    </svg>
+  );
 }
 
-export default function Home() {
-  const [msalReady, setMsalReady] = useState(false);
-  const [account, setAccount] = useState<AccountInfo | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState("Initializing auth...");
-  const [extractedText, setExtractedText] = useState("");
-  const [streamName, setStreamName] = useState("Message Body");
-  const [streamTextLength, setStreamTextLength] = useState(0);
-  const [streamItems, setStreamItems] = useState<NonNullable<WorkerResult["Streams"]>>([]);
-  const [expandedSectionKeys, setExpandedSectionKeys] = useState<string[]>([]);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        await msal.initialize();
-        setMsalReady(true);
-        setStatus("Ready");
-      } catch (error) {
-        setStatus(`Auth init failed: ${formatError(error)}`);
-      }
-    })();
-  }, []);
-
-  const signIn = async (): Promise<void> => {
-    if (!msalReady) {
-      setStatus("Auth still initializing");
-      return;
-    }
-
-    try {
-      setStatus("Signing in...");
-      const result = await msal.loginPopup({ scopes: ["openid", "profile", apiScope] });
-      setAccount(result.account);
-      setStatus("Signed in");
-    } catch (error) {
-      setStatus(`Sign in failed: ${formatError(error)}`);
-    }
-  };
-
-  const submit = async (): Promise<void> => {
-    setExtractedText("");
-    setStreamTextLength(0);
-    setStreamName("Message Body");
-    setStreamItems([]);
-    setExpandedSectionKeys([]);
-
-    if (!account) {
-      setStatus("Please sign in first");
-      return;
-    }
-
-    if (!file) {
-      setStatus("Please select a file");
-      return;
-    }
-    if (file.size > maxUploadMb * 1024 * 1024) {
-      setStatus(`File too large (${(file.size / (1024 * 1024)).toFixed(2)}MB). Limit: ${maxUploadMb}MB.`);
-      return;
-    }
-
-    try {
-      setStatus("Acquiring token...");
-      const token = await getAccessToken(account);
-
-      const fileContent = await toBase64(file);
-      const capsule = createCapsule({
-        userId: account.username,
-        tenant: account.tenantId ?? "unknown-tenant",
-        fileName: file.name,
-        fileContent
-      });
-
-      setStatus("Submitting extraction capsule...");
-      const response = await fetch(`${apiBaseUrl}/api/capsule`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(capsule)
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        setStatus(`Submit failed: ${response.status} ${body}`);
-        return;
-      }
-
-      const result = (await response.json()) as { workerResult?: WorkerResult };
-      const workerResult = result.workerResult ?? {};
-      const text = typeof workerResult.ExtractedStreamText === "string"
-        ? workerResult.ExtractedStreamText
-        : (typeof workerResult.text === "string" ? workerResult.text : "");
-      const extractionMethod = workerResult.extractionMethod ?? "unknown";
-      const resolvedStreamName = typeof workerResult.StreamName === "string" && workerResult.StreamName.trim().length > 0
-        ? workerResult.StreamName
-        : "Message Body";
-      const resolvedStreamLength = typeof workerResult.StreamTextLength === "number"
-        ? workerResult.StreamTextLength
-        : text.length;
-      const streams = Array.isArray(workerResult.Streams) ? workerResult.Streams : [];
-
-      setExtractedText(text);
-      setStreamName(resolvedStreamName);
-      setStreamTextLength(resolvedStreamLength);
-      setStreamItems(streams);
-      if (text.trim().length > 0) {
-        setStatus(`Text extraction complete (${extractionMethod})`);
-      } else if (workerResult.message) {
-        setStatus(workerResult.message);
-      } else {
-        setStatus(`Extraction returned empty text (${extractionMethod})`);
-      }
-    } catch (error) {
-      setStatus(`Submit failed: ${formatError(error)}`);
-    }
-  };
-
+function CapabilityDiagram() {
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="rounded-2xl border border-stroke bg-white p-6 shadow-sm dark:border-dark-3 dark:bg-dark-2">
-        <h1 className="mb-1 text-2xl font-bold text-dark dark:text-white">Test Text Extraction</h1>
-        <p className="mb-6 text-sm text-dark-5 dark:text-dark-6">
-          Authenticate, upload a file, and run text extraction via the SICO API.
+    <svg
+      className="h-auto w-full rounded-xl border border-stroke bg-white p-3 dark:border-dark-3 dark:bg-dark-2"
+      viewBox="0 0 1040 260"
+      role="img"
+      aria-label="SICO capability map"
+    >
+      <rect x="20" y="25" width="1000" height="210" rx="14" fill="#0F172A" />
+      <text x="520" y="55" textAnchor="middle" fontSize="20" fill="#F8FAFC" fontWeight="700">
+        SICO Capability Map
+      </text>
+
+      <rect x="65" y="80" width="280" height="130" rx="12" fill="#1E293B" stroke="#60A5FA" />
+      <text x="205" y="112" textAnchor="middle" fontSize="16" fill="#E2E8F0" fontWeight="600">
+        Testing Workbench
+      </text>
+      <text x="205" y="138" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        Text extraction
+      </text>
+      <text x="205" y="156" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        Data classification
+      </text>
+      <text x="205" y="174" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        Container file visibility
+      </text>
+
+      <rect x="380" y="80" width="280" height="130" rx="12" fill="#1E293B" stroke="#34D399" />
+      <text x="520" y="112" textAnchor="middle" fontSize="16" fill="#E2E8F0" fontWeight="600">
+        Purview Recipes
+      </text>
+      <text x="520" y="138" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        SIT Library
+      </text>
+      <text x="520" y="156" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        DLP Library
+      </text>
+      <text x="520" y="174" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        Provenance and references
+      </text>
+
+      <rect x="695" y="80" width="280" height="130" rx="12" fill="#1E293B" stroke="#F59E0B" />
+      <text x="835" y="112" textAnchor="middle" fontSize="16" fill="#E2E8F0" fontWeight="600">
+        Build
+      </text>
+      <text x="835" y="138" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        SIT Builder scaffold
+      </text>
+      <text x="835" y="156" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        DLP Builder scaffold
+      </text>
+      <text x="835" y="174" textAnchor="middle" fontSize="12" fill="#CBD5E1">
+        DB-ready extension path
+      </text>
+    </svg>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-stroke bg-white p-6 shadow-sm dark:border-dark-3 dark:bg-dark-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">SICO Platform</p>
+        <h1 className="mt-2 text-3xl font-bold text-dark dark:text-white">Classification and DLP Engineering Workbench</h1>
+        <p className="mt-3 max-w-4xl text-sm leading-6 text-dark-5 dark:text-dark-6">
+          SICO is an engineering-focused environment for testing extraction pipelines, validating SIT detection behavior,
+          and preparing deterministic Purview-aligned recipe content for policy automation.
         </p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          {quickLinks.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-md border border-stroke px-3 py-1.5 text-xs font-medium text-dark transition hover:border-primary hover:text-primary dark:border-dark-3 dark:text-dark-6 dark:hover:text-white"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      </section>
 
-        {!account ? (
-          <button
-            className="inline-flex rounded-lg bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary/90"
-            onClick={() => void signIn()}
-            type="button"
-            disabled={!msalReady}
+      <section className="grid gap-4 xl:grid-cols-3">
+        {featureCards.map((card) => (
+          <article
+            key={card.title}
+            className="rounded-2xl border border-stroke bg-white p-5 shadow-sm dark:border-dark-3 dark:bg-dark-2"
           >
-            Sign In
-          </button>
-        ) : (
-          <>
-            <p className="mb-4 text-sm text-dark dark:text-white">Signed in as {account.username}</p>
-            <div className="space-y-4">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-dark dark:text-white">Upload File</label>
-                <input
-                  className="w-full rounded-lg border border-stroke px-3 py-2 dark:border-dark-3 dark:bg-dark"
-                  type="file"
-                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                />
-              </div>
+            <h2 className="text-lg font-semibold text-dark dark:text-white">{card.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-dark-5 dark:text-dark-6">{card.description}</p>
+            <Link
+              href={card.href}
+              className="mt-4 inline-flex rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary/90"
+            >
+              {card.cta}
+            </Link>
+          </article>
+        ))}
+      </section>
 
-              <button
-                className="inline-flex rounded-lg bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary/90"
-                onClick={() => void submit()}
-                type="button"
-              >
-                Extract Text
-              </button>
-            </div>
-          </>
-        )}
+      <section className="rounded-2xl border border-stroke bg-white p-6 shadow-sm dark:border-dark-3 dark:bg-dark-2">
+        <h2 className="text-xl font-semibold text-dark dark:text-white">Processing Flow</h2>
+        <p className="mt-2 text-sm text-dark-5 dark:text-dark-6">
+          End-to-end deterministic pipeline from input through extraction, normalization, classification, and evidence output.
+        </p>
+        <div className="mt-4">
+          <PlatformFlowDiagram />
+        </div>
+      </section>
 
-        <p className="mt-5 text-sm text-dark dark:text-white">Status: {status}</p>
-
-        {extractedText && streamItems.length === 0 ? (
-          <div className="mt-4 rounded-lg border border-green-300 bg-green-50 p-4 dark:border-green-700 dark:bg-green-950/30">
-            <p className="text-sm font-semibold text-green-900 dark:text-green-200">Extracted Text</p>
-            <p className="mt-1 text-xs text-green-900/80 dark:text-green-200/80">
-              {`Stream: ${streamName} | Length: ${streamTextLength}`}
-            </p>
-            <pre className="mt-2 whitespace-pre-wrap text-sm text-green-800 dark:text-green-100">{extractedText}</pre>
-          </div>
-        ) : null}
-
-        {streamItems.length > 0 && file ? (
-          <div className="mt-4 rounded-lg border border-stroke bg-white p-4 dark:border-dark-3 dark:bg-dark">
-            {(() => {
-              const ext = getFileExtension(file.name);
-              const isMessageContainer = ext === ".msg" || ext === ".eml";
-              const isArchiveContainer = ext === ".zip" || ext === ".7z" || ext === ".rar";
-              const sections = buildDisplaySections(ext, streamItems);
-              const allExpanded = sections.length > 0 && expandedSectionKeys.length === sections.length;
-              const headerLabel = isMessageContainer
-                ? "Message Parts"
-                : isArchiveContainer
-                  ? "Archive Files"
-                  : "Stream Parts";
-
-              return (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-dark dark:text-white">{headerLabel}</p>
-                    <button
-                      className="rounded-md border border-stroke px-3 py-1 text-xs font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                      onClick={() => {
-                        if (allExpanded) {
-                          setExpandedSectionKeys([]);
-                          return;
-                        }
-                        setExpandedSectionKeys(sections.map((section) => section.key));
-                      }}
-                      type="button"
-                    >
-                      {allExpanded ? "Collapse All" : "Expand All"}
-                    </button>
-                  </div>
-
-                  <div className="space-y-2">
-                    {sections.map((section) => {
-                      const isExpanded = expandedSectionKeys.includes(section.key);
-                      return (
-                        <div key={section.key} className="rounded-lg border border-stroke p-3 dark:border-dark-3">
-                          <button
-                            className="flex w-full items-center justify-between text-left text-sm font-medium text-dark dark:text-white"
-                            onClick={() => {
-                              setExpandedSectionKeys((prev) =>
-                                prev.includes(section.key)
-                                  ? prev.filter((key) => key !== section.key)
-                                  : [...prev, section.key]
-                              );
-                            }}
-                            type="button"
-                          >
-                            <span>{section.title}</span>
-                            <span className="text-xs text-dark-5 dark:text-dark-6">{isExpanded ? "Hide" : "Show"}</span>
-                          </button>
-
-                          {isExpanded ? (
-                            <>
-                              <p className="mt-2 text-[11px] text-dark-5 dark:text-dark-6">
-                                {`StreamName: ${section.streamName} | StreamId: ${section.streamId} | Length: ${section.streamTextLength}`}
-                              </p>
-                              <pre className="mt-2 whitespace-pre-wrap text-xs text-dark-5 dark:text-dark-6">{section.text}</pre>
-                            </>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        ) : null}
-      </div>
+      <section className="rounded-2xl border border-stroke bg-white p-6 shadow-sm dark:border-dark-3 dark:bg-dark-2">
+        <h2 className="text-xl font-semibold text-dark dark:text-white">Capability Coverage</h2>
+        <p className="mt-2 text-sm text-dark-5 dark:text-dark-6">
+          Current areas are organized for testing, recipe authoring, and future build/deployment workflows.
+        </p>
+        <div className="mt-4">
+          <CapabilityDiagram />
+        </div>
+      </section>
     </div>
   );
 }

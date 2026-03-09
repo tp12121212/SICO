@@ -1,0 +1,54 @@
+{
+  "summary": {
+    "total_records": 1477,
+    "built_in_records": 312,
+    "with_reference_url": 307,
+    "allowlist_count": 307,
+    "missing_reference_count": 0,
+    "non_microsoft_reference_count": 0,
+    "unexpected_url_count": 0,
+    "missing_from_records_count": 0,
+    "duplicate_url_count": 4,
+    "name_mismatch_count": 0,
+    "redirect_count": 0,
+    "fetch_error_count": 0
+  },
+  "missing_reference": [],
+  "non_microsoft_reference": [],
+  "unexpected_url": [],
+  "missing_from_records": [],
+  "duplicate_urls": [
+    {
+      "url": "https://learn.microsoft.com/en-us/purview/sit-defn-azure-service-bus-connection-string",
+      "slugs": [
+        "azure-service-bus-connection-string",
+        "global-azure-service-bus-connection-string"
+      ]
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/purview/sit-defn-azure-storage-account-key",
+      "slugs": [
+        "azure-storage-account-key",
+        "global-azure-storage-connection-string",
+        "global-azure-storage-key"
+      ]
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/purview/sit-defn-ip-address",
+      "slugs": [
+        "global-ipv4-address",
+        "global-ipv6-address"
+      ]
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/purview/sit-defn-spain-dni",
+      "slugs": [
+        "es-dni",
+        "es-nie"
+      ]
+    }
+  ],
+  "name_mismatch": [],
+  "redirects": [],
+  "fetch_errors": []
+}

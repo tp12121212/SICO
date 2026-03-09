@@ -78,16 +78,40 @@ start_component() {
 }
 
 open_browser() {
+  if [[ "${NO_BROWSER:-0}" == "1" || "${HEADLESS:-0}" == "1" || "${CI:-0}" == "1" ]]; then
+    echo "Skipping browser launch (NO_BROWSER/HEADLESS/CI enabled)."
+    return 0
+  fi
+
   sleep 5
   if command -v open >/dev/null 2>&1; then
     open "$APP_URL" >/dev/null 2>&1 || true
     return 0
   fi
   if command -v xdg-open >/dev/null 2>&1; then
+    if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+      echo "Skipping browser launch (no DISPLAY/WAYLAND in this environment)."
+      return 0
+    fi
     xdg-open "$APP_URL" >/dev/null 2>&1 || true
     return 0
   fi
   echo "Could not open browser automatically. Open $APP_URL manually."
+}
+
+preflight_worker_modules() {
+  if ! command -v pwsh >/dev/null 2>&1; then
+    echo "pwsh not found; skipping worker module preflight."
+    return 0
+  fi
+
+  local preload_cmd="\$repo = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue; if (\$repo) { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue | Out-Null }; if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) { if (Get-Command -Name Install-Module -ErrorAction SilentlyContinue) { Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop | Out-Null } }; Import-Module ExchangeOnlineManagement -ErrorAction Stop | Out-Null; Write-Host 'ExchangeOnlineManagement preflight ready'"
+  echo "Preflighting worker module (ExchangeOnlineManagement)..."
+  if [[ "$DEBUG" -eq 1 ]]; then
+    (cd "$WORKER_DIR" && pwsh -NoLogo -NoProfile -Command "$preload_cmd") || true
+  else
+    (cd "$WORKER_DIR" && pwsh -NoLogo -NoProfile -Command "$preload_cmd" >>"$LOG_DIR/worker-preflight.log" 2>&1) || true
+  fi
 }
 
 stop_component() {
@@ -111,6 +135,7 @@ stop_component() {
 
 start_all() {
   start_component "api" "$ROOT_DIR" "env MAX_JSON_BODY_MB=80 AAD_TENANT_ID=organizations ALLOW_MULTI_TENANT=true AAD_AUDIENCE=api://63eefc68-2d4b-45c0-a619-65b45c5fada9 REQUIRED_SCOPES=Capsule.Submit ALLOW_DUMMY_WORKER_FALLBACK=false node server/index.js"
+  preflight_worker_modules
   start_component "worker" "$WORKER_DIR" "func start"
   start_component "dashboard" "$DASHBOARD_DIR" "npm run dev"
   echo "All components started."

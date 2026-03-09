@@ -22,6 +22,38 @@ const SIT_PATTERNS_PATH = path.join(process.cwd(), "src/data/sit/patterns.json")
 const SCHEMA_VERSION = "sit-library/v1";
 
 let cachedDataset: SitLibraryResult | null = null;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+function isMicrosoftLearnSitReference(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const candidate = value.trim().toLowerCase();
+  return candidate.includes("learn.microsoft.com") && candidate.includes("/purview/sit-defn-");
+}
+
+function isMicrosoftBuiltIn(record: SitPatternRecord): boolean {
+  const source = normalizeString(record.source).toLowerCase();
+  const author = normalizeString(record.author).toLowerCase();
+  if (source.includes("microsoft") || author.includes("microsoft")) {
+    return true;
+  }
+
+  const references = toJsonArray(record.references);
+  for (const reference of references) {
+    if (typeof reference === "string" && isMicrosoftLearnSitReference(reference)) {
+      return true;
+    }
+    if (reference && typeof reference === "object" && !Array.isArray(reference)) {
+      const maybeUrl = (reference as Record<string, unknown>).url;
+      if (isMicrosoftLearnSitReference(maybeUrl)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 function normalizeSitPattern(record: SitPatternRecord): NormalizedSitPattern {
   const schema = normalizeString(record.schema) || "testpattern/v1";
@@ -71,6 +103,8 @@ function normalizeSitPattern(record: SitPatternRecord): NormalizedSitPattern {
     }
   }
 
+  const builtIn = isMicrosoftBuiltIn(record);
+
   return {
     schema,
     name,
@@ -98,15 +132,16 @@ function normalizeSitPattern(record: SitPatternRecord): NormalizedSitPattern {
     references: toJsonArray(record.references),
     created: normalizeString(record.created) || undefined,
     updated: normalizeString(record.updated) || undefined,
-    author: normalizeString(record.author) || undefined,
-    source: normalizeString(record.source) || undefined,
+    author: builtIn ? "Microsoft" : normalizeString(record.author) || undefined,
+    source: builtIn ? "Microsoft" : normalizeString(record.source) || undefined,
+    provenance_type: builtIn ? "Built-in" : "Custom",
     license: normalizeString(record.license) || undefined,
     extra
   };
 }
 
 async function loadDataset(): Promise<SitLibraryResult> {
-  if (cachedDataset) {
+  if (IS_PRODUCTION && cachedDataset) {
     return cachedDataset;
   }
 
@@ -126,17 +161,25 @@ async function loadDataset(): Promise<SitLibraryResult> {
   const availableEngines = [...new Set(normalized.map((item) => item.engine).filter((item) => item.length > 0))].sort((a, b) =>
     a.localeCompare(b)
   );
+  const availableAuthors = [...new Set(normalized.map((item) => item.author ?? "").filter((item) => item.length > 0))].sort((a, b) =>
+    a.localeCompare(b)
+  );
 
-  cachedDataset = {
+  const dataset: SitLibraryResult = {
     schemaVersion: SCHEMA_VERSION,
     sourceVersion: normalizeString(parsed.version) || "unknown",
     generated: normalizeString(parsed.generated) || undefined,
     items: normalized,
     availableTypes,
-    availableEngines
+    availableEngines,
+    availableAuthors
   };
 
-  return cachedDataset;
+  if (IS_PRODUCTION) {
+    cachedDataset = dataset;
+  }
+
+  return dataset;
 }
 
 function applyQuery(items: NormalizedSitPattern[], query: SitLibraryQuery): NormalizedSitPattern[] {
@@ -144,11 +187,14 @@ function applyQuery(items: NormalizedSitPattern[], query: SitLibraryQuery): Norm
   const search = normalizeString(query.search).toLowerCase();
   const type = normalizeString(query.type);
   const engine = normalizeString(query.engine);
+  const author = normalizeString(query.author);
   const sort = query.sort ?? "name_asc";
 
   if (search) {
     filtered = filtered.filter((item) =>
-      [item.name, item.slug, item.description, item.type, item.engine].some((field) => field.toLowerCase().includes(search))
+      [item.name, item.slug, item.description, item.type, item.engine, item.author ?? "", item.source ?? ""].some((field) =>
+        field.toLowerCase().includes(search)
+      )
     );
   }
 
@@ -158,6 +204,10 @@ function applyQuery(items: NormalizedSitPattern[], query: SitLibraryQuery): Norm
 
   if (engine) {
     filtered = filtered.filter((item) => item.engine === engine);
+  }
+
+  if (author) {
+    filtered = filtered.filter((item) => (item.author ?? "") === author);
   }
 
   switch (sort) {
