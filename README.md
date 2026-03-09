@@ -1,65 +1,66 @@
 # SICO PoC
 
-SICO proof-of-concept with:
+SICO proof-of-concept for Microsoft Purview-style automation:
 
-- `dashboard/`: Next.js UI for Test Text Extraction
-- `server/`: Node/Express API gateway (`/api/capsule`)
-- `worker/`: Azure Functions PowerShell worker (`/api/textExtraction`, `/api/createDLP`)
+- `dashboard/`: Next.js UI for text extraction and data classification testing
+- `server/`: Node/Express API gateway (`/api/capsule`, status and stream endpoints)
+- `worker/`: Azure Functions PowerShell worker (`/api/textExtraction`, `/api/dataClassification`, `/api/createDLP`)
 
-## Frontend Direction
-
-The legacy Vite frontend has been removed.
-Use the Next.js dashboard only.
+The legacy Vite frontend has been removed. Use the Next.js dashboard only.
 
 ## Prerequisites
 
 - Node.js 20+
 - npm 10+
 - PowerShell 7.4+
-- Azure Functions Core Tools v4 (`func`)
-- .NET 8 runtime/SDK for local PowerShell Functions
+- Azure Functions Core Tools v4 (`func`) for local worker execution
+- .NET 8 SDK/runtime for local PowerShell Azure Functions
+- Azure CLI (`az`) if using Entra bootstrap script
 
 ## Install
 
 ```bash
-cd /Users/toddparker/Library/CloudStorage/OneDrive-KillerCloud/Applications/gits/SICO
 npm install
-
-cd dashboard
-npm install
+cd dashboard && npm install
 ```
 
-## Entra App Bootstrap
+## Entra App Bootstrap (optional)
 
-Interactive bootstrap (create/reuse app reg, set scopes, optional admin consent, and update dashboard env):
+Interactive bootstrap to create/reuse an app registration and update dashboard env values:
 
 ```bash
-cd /Users/toddparker/Library/CloudStorage/OneDrive-KillerCloud/Applications/gits/SICO
 ./scripts/bootstrap-entra-app.sh
 ```
 
-This updates:
+This updates `dashboard/.env.local` with:
 
-- `dashboard/.env.local`
-  - `NEXT_PUBLIC_AAD_CLIENT_ID`
-  - `NEXT_PUBLIC_AAD_AUTHORITY`
-  - `NEXT_PUBLIC_API_BASE_URL`
-  - `NEXT_PUBLIC_API_SCOPE`
+- `NEXT_PUBLIC_AAD_CLIENT_ID`
+- `NEXT_PUBLIC_AAD_AUTHORITY`
+- `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_API_SCOPE`
 
 ## Run Locally
+
+### Option 1: appctl helper (recommended)
+
+- macOS/Linux: `./appctl.sh start|stop|restart`
+- Windows: `appctl.cmd start|stop|restart`
+
+This orchestrates API, worker, and dashboard processes.
+
+### Option 2: manual startup
 
 1. Start worker:
 
 ```bash
-cd /Users/toddparker/Library/CloudStorage/OneDrive-KillerCloud/Applications/gits/SICO/worker
+cd worker
 func start
 ```
 
 2. Start API:
 
 ```bash
-cd /Users/toddparker/Library/CloudStorage/OneDrive-KillerCloud/Applications/gits/SICO
-env MAX_JSON_BODY_MB=50 \
+MAX_JSON_BODY_MB=50 \
 AAD_TENANT_ID=organizations \
 ALLOW_MULTI_TENANT=true \
 AAD_AUDIENCE=api://<APP_CLIENT_ID> \
@@ -71,37 +72,22 @@ node server/index.js
 3. Start dashboard:
 
 ```bash
-cd /Users/toddparker/Library/CloudStorage/OneDrive-KillerCloud/Applications/gits/SICO/dashboard
+cd dashboard
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open `http://localhost:5173`.
 
-## Optional Helper Scripts
+## HTTPS for Mobile Auth
 
-- macOS/Linux: `./appctl.sh start|stop|restart`
-- Windows: `appctl.cmd start|stop|restart`
+Browser-based Microsoft sign-in requires HTTPS + Web Crypto on mobile browsers.
+`appctl` starts dashboard HTTPS by default.
 
-These orchestrate dashboard, API, and worker processes.
+- macOS/Linux cert output:
+  - `.appctl/certs/dashboard-dev-cert.pem`
+  - `.appctl/certs/dashboard-dev-key.pem`
 
-## HTTPS for Mobile (iOS/Android)
-
-Microsoft sign-in in browser requires a secure context (HTTPS + Web Crypto).
-Using `http://192.168.x.x:5173` on mobile will fail auth initialization.
-
-### Local development HTTPS
-
-`appctl` now starts the dashboard with HTTPS by default:
-
-- macOS/Linux: `./appctl.sh start`
-- Windows: `appctl.cmd start`
-
-For macOS/Linux, a local self-signed cert is generated at:
-
-- `.appctl/certs/dashboard-dev-cert.pem`
-- `.appctl/certs/dashboard-dev-key.pem`
-
-You can pre-generate/regenerate it manually:
+Generate/regenerate cert manually:
 
 ```bash
 ./scripts/generate-dev-https-cert.sh
@@ -113,22 +99,41 @@ Optional flags:
 DEV_CERT_FORCE=1 DEV_CERT_HOSTS="sico.local,192.168.0.168" ./scripts/generate-dev-https-cert.sh
 ```
 
-### Production HTTPS (recommended)
+## Configuration
 
-Use a real domain and terminate TLS at a reverse proxy (Caddy/Nginx/Traefik) with Let’s Encrypt.
+### API (`server/index.js`)
 
-Example Caddyfile:
+- `API_PORT` (default: `3001`)
+- `MAX_JSON_BODY_MB` (default: `20`)
+- `WORKER_TIMEOUT_MS` (default: `900000`)
+- `AAD_TENANT_ID` (default: `common`)
+- `ALLOW_MULTI_TENANT` (`true|false`, default: `false`)
+- `AAD_AUDIENCE` (comma-separated; default: `api://sico-poc`)
+- `REQUIRED_SCOPES` (comma-separated; default: `Capsule.Submit`)
+- `WORKER_DLP_URL` (default: `http://localhost:7071/api/createDLP`)
+- `WORKER_TEXT_EXTRACTION_URL` (default: `http://localhost:7071/api/textExtraction`)
+- `WORKER_DATA_CLASSIFICATION_URL` (default: `http://localhost:7071/api/dataClassification`)
+- `SKIP_JWT_VALIDATION` (`true|false`, dev only)
+- `ALLOW_DUMMY_WORKER_FALLBACK` (`true|false`, default: `true`)
 
-```txt
-purview.example.com {
-  reverse_proxy /api/* 127.0.0.1:3001
-  reverse_proxy 127.0.0.1:5173
-}
+### Dashboard (`dashboard/.env.local`)
+
+- `NEXT_PUBLIC_AAD_CLIENT_ID`
+- `NEXT_PUBLIC_AAD_AUTHORITY`
+- `NEXT_PUBLIC_API_BASE_URL`
+- `NEXT_PUBLIC_API_SCOPE`
+- `NEXT_PUBLIC_MAX_UPLOAD_MB` (optional)
+
+## Notes and Current Caveats
+
+- `func start` requires both Azure Functions Core Tools and .NET runtime support.
+- `appctl.sh` and `appctl.cmd` currently start API with a hardcoded `AAD_AUDIENCE` value (`api://63eefc68-2d4b-45c0-a619-65b45c5fada9`). If your Entra app uses a different client ID, use manual startup for API (or adjust scripts locally).
+- Some dashboard auth defaults also fall back to the same hardcoded client ID when env vars are missing; set all dashboard env vars explicitly to avoid mismatches.
+
+## Quick Smoke Test
+
+With API running locally, you can post a sample capsule:
+
+```bash
+./test.sh
 ```
-
-Then configure Entra app SPA redirect URIs to the exact HTTPS origin (for example `https://purview.example.com/`).
-
-## Notes
-
-- `func start` requires .NET + PowerShell worker runtime support.
-- For text extraction parity with your direct PowerShell flow, ensure required Exchange/Purview modules are available in the worker runtime.
