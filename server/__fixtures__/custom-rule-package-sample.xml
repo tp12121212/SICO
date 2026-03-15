@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RulePackage xmlns="http://schemas.microsoft.com/office/2011/mce">
+  <RulePack id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa">
+    <Version major="1" minor="0" build="0" revision="0"/>
+    <Publisher id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"/>
+    <Details defaultLangCode="en-au">
+      <LocalizedDetails langcode="en-au">
+        <PublisherName>Killer Cloud</PublisherName>
+        <Name>Microsoft.SCCManaged.CustomRulePack</Name>
+        <Description>Sample custom rule package.</Description>
+      </LocalizedDetails>
+    </Details>
+  </RulePack>
+  <Rules>
+    <Entity id="cccccccc-cccc-4ccc-8ccc-cccccccccccc" patternsProximity="300" recommendedConfidence="75">
+      <Pattern id="pattern-custom" name="Custom Pattern" confidenceLevel="75" proximity="100">
+        <IdMatch idRef="Regex.Custom.Primary"/>
+        <Match idRef="Keyword.Custom.Supporting"/>
+      </Pattern>
+    </Entity>
+    <Regex id="Regex.Custom.Primary" description="Australian passport">[A-Z]{1}\d{7}</Regex>
+    <Keyword id="Keyword.Custom.Supporting" description="Custom supporting words">
+      <Group matchStyle="word">
+        <Term caseSensitive="false">passport</Term>
+        <Term caseSensitive="false">australia</Term>
+      </Group>
+    </Keyword>
+    <LocalizedStrings>
+      <Resource idRef="cccccccc-cccc-4ccc-8ccc-cccccccccccc">
+        <Name default="true" langcode="en-au">Australian Passport Number</Name>
+        <Description default="true" langcode="en-au">Custom SIT sample</Description>
+      </Resource>
+    </LocalizedStrings>
+  </Rules>
+</RulePackage>

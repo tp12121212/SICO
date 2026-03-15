@@ -1,5 +1,12 @@
 import express from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import {
+  createDefaultRulePackage,
+  exportRulePackageToXml,
+  getSitBuilderCatalog,
+  importRulePackageFromXml,
+  validateRulePackage
+} from "./sit-rule-package.js";
 
 const app = express();
 const MAX_JSON_BODY_MB = Number(process.env.MAX_JSON_BODY_MB ?? 20);
@@ -66,6 +73,10 @@ const WORKER_TEXT_EXTRACTION_URL =
   process.env.WORKER_TEXT_EXTRACTION_URL ?? "http://localhost:7071/api/textExtraction";
 const WORKER_DATA_CLASSIFICATION_URL =
   process.env.WORKER_DATA_CLASSIFICATION_URL ?? "http://localhost:7071/api/dataClassification";
+const WORKER_SIT_PUBLISH_URL =
+  process.env.WORKER_SIT_PUBLISH_URL ?? "http://localhost:7071/api/sitRulePackagePublish";
+const WORKER_SIT_LOAD_FROM_TENANT_URL =
+  process.env.WORKER_SIT_LOAD_FROM_TENANT_URL ?? "http://localhost:7071/api/sitRulePackageLoadFromTenant";
 const SKIP_JWT_VALIDATION = process.env.SKIP_JWT_VALIDATION === "true";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const ALLOW_DUMMY_WORKER_FALLBACK = process.env.ALLOW_DUMMY_WORKER_FALLBACK !== "false";
@@ -83,6 +94,12 @@ const COMMAND_REGISTRY = {
   },
   DataClassification: {
     workerUrl: WORKER_DATA_CLASSIFICATION_URL
+  },
+  SitRulePackagePublish: {
+    workerUrl: WORKER_SIT_PUBLISH_URL
+  },
+  SitRulePackageLoadFromTenant: {
+    workerUrl: WORKER_SIT_LOAD_FROM_TENANT_URL
   }
 };
 const statusStore = new Map();
@@ -128,8 +145,16 @@ function sanitizeEventData(value) {
         sanitized[key] = `<redacted-base64:${item.length} chars>`;
         continue;
       }
+      if (key === "xml" && typeof item === "string") {
+        sanitized[key] = `<redacted-xml:${item.length} chars>`;
+        continue;
+      }
       if (key === "inputText" && typeof item === "string") {
         sanitized[key] = `<redacted-text:${item.length} chars>`;
+        continue;
+      }
+      if (key === "accessToken" && typeof item === "string") {
+        sanitized[key] = "<redacted-access-token>";
         continue;
       }
       sanitized[key] = sanitizeEventData(item);
@@ -203,13 +228,22 @@ function pickAuditView(capsule) {
   if (typeof params.fileContent === "string") {
     params.fileContent = `<redacted-base64:${params.fileContent.length} chars>`;
   }
+  if (typeof params.xml === "string") {
+    params.xml = `<redacted-xml:${params.xml.length} chars>`;
+  }
   if (typeof params.inputText === "string") {
     params.inputText = `<redacted-text:${params.inputText.length} chars>`;
+  }
+  if (params.delegatedAuth && typeof params.delegatedAuth === "object") {
+    params.delegatedAuth = {
+      ...params.delegatedAuth,
+      accessToken: params.delegatedAuth.accessToken ? "<redacted-access-token>" : undefined
+    };
   }
   return {
     capsuleId: capsule.capsuleId,
     action: capsule.action,
-    tenant: capsule.tenant,
+    tenant: capsule.tenant ? "<redacted-tenant>" : undefined,
     userId: capsule.userId,
     params
   };
@@ -228,6 +262,9 @@ function pickWorkerAuditView(workerResult) {
   }
   if (Array.isArray(copy.Streams)) {
     copy.Streams = `<redacted-streams:${copy.Streams.length} items>`;
+  }
+  if (typeof copy.xml === "string") {
+    copy.xml = `<redacted-xml:${copy.xml.length} chars>`;
   }
   return copy;
 }
@@ -499,6 +536,71 @@ function saveStatus(capsuleId, state) {
   });
 }
 
+app.get("/api/sit/template", (_req, res) => {
+  const rulePackage = createDefaultRulePackage();
+  const validation = validateRulePackage(rulePackage);
+  const exported = exportRulePackageToXml(rulePackage);
+  res.status(200).json({
+    status: "ok",
+    rulePackage: validation.rulePackage,
+    issues: validation.issues,
+    xml: exported.xml,
+    catalog: getSitBuilderCatalog()
+  });
+});
+
+app.get("/api/sit/catalog", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    catalog: getSitBuilderCatalog()
+  });
+});
+
+app.post("/api/sit/validate", (req, res) => {
+  const validation = validateRulePackage(req.body?.rulePackage ?? req.body);
+  res.status(200).json({
+    status: validation.isValid ? "valid" : "invalid",
+    isValid: validation.isValid,
+    issues: validation.issues,
+    rulePackage: validation.rulePackage
+  });
+});
+
+app.post("/api/sit/export/xml", (req, res) => {
+  const validation = validateRulePackage(req.body?.rulePackage ?? req.body);
+  const exported = exportRulePackageToXml(validation.rulePackage);
+  res.status(200).json({
+    status: validation.isValid ? "ok" : "warning",
+    isValid: validation.isValid,
+    issues: validation.issues,
+    rulePackage: exported.rulePackage,
+    xml: exported.xml,
+    digest: exported.digest
+  });
+});
+
+app.post("/api/sit/import/xml", (req, res) => {
+  try {
+    const imported = importRulePackageFromXml(req.body?.xml);
+    const validation = validateRulePackage(imported.rulePackage);
+    const exported = exportRulePackageToXml(validation.rulePackage);
+    res.status(200).json({
+      status: validation.isValid ? "ok" : "warning",
+      isValid: validation.isValid,
+      issues: validation.issues,
+      rulePackage: validation.rulePackage,
+      importResult: imported.importResult,
+      xml: exported.xml,
+      digest: imported.digest
+    });
+  } catch (error) {
+    res.status(400).json({
+      status: "error",
+      error: error instanceof Error ? error.message : "Failed to import XML"
+    });
+  }
+});
+
 app.get("/healthz", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
@@ -605,10 +707,11 @@ app.post("/api/capsule", async (req, res) => {
         message: "Validating access token"
       });
     }
+    const bearerToken = parseRequiredBearerToken(req.headers.authorization);
     const tokenPayload = await validateAccessToken(req.headers.authorization);
     console.log("Token validated", {
       oid: tokenPayload.oid,
-      tid: tokenPayload.tid,
+      tid: tokenPayload.tid ? "<redacted-tenant-id>" : undefined,
       iss: tokenPayload.iss,
       scp: tokenPayload.scp
     });
@@ -619,7 +722,7 @@ app.post("/api/capsule", async (req, res) => {
         message: "Access token validated",
         data: {
           oid: tokenPayload.oid,
-          tid: tokenPayload.tid,
+          tid: tokenPayload.tid ? "<redacted-tenant-id>" : undefined,
           scp: tokenPayload.scp
         }
       });
@@ -651,6 +754,18 @@ app.post("/api/capsule", async (req, res) => {
               ...(userPrincipalName ? { userPrincipalName } : {})
             }
           }
+        : capsule.action === "SitRulePackageLoadFromTenant"
+          ? {
+              ...capsule,
+              params: {
+                ...capsule.params,
+                delegatedAuth: {
+                  accessToken: bearerToken,
+                  tenantId: tokenPayload.tid,
+                  userPrincipalName
+                }
+              }
+            }
         : capsule;
 
     saveStatus(capsule.capsuleId, { status: "processing" });

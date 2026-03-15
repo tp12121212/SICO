@@ -3,8 +3,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "DEBUG=0"
 set "ACTION="
-set "APP_URL=https://localhost:5173"
-if "%DASHBOARD_USE_HTTPS%"=="" set "DASHBOARD_USE_HTTPS=1"
+set "APP_URL=http://localhost:5173"
+if "%DASHBOARD_USE_HTTPS%"=="" set "DASHBOARD_USE_HTTPS=0"
 
 set "ROOT_DIR=%~dp0"
 if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"

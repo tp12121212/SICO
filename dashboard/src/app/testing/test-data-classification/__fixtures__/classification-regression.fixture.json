@@ -1,0 +1,441 @@
+{
+  "DataClassification": {
+    "Kind": "Body",
+    "Name": "Message Body",
+    "Result": {
+      "ClassificationResults": [
+        {
+          "ClassificationName": "Australia Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "29869db6-602d-4853-ab93-3484f905df50",
+          "Matches": {
+            "T7654321": null
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Indonesia Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "d0001c83-e72f-4360-98d3-f5a41dc5a380",
+          "Matches": {
+            "T7654321": "PASSPORT"
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Indonesia Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "d0001c83-e72f-4360-98d3-f5a41dc5a380",
+          "Matches": {
+            "T7654321": "PASSPORT"
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "EU Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "21883626-6245-4f3d-9b61-5cbb43e625ee",
+          "Matches": {
+            "T7654321": [
+              "DOCUMENT No",
+              "Date of issue",
+              "Date of expiry"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "EU Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "21883626-6245-4f3d-9b61-5cbb43e625ee",
+          "Matches": {
+            "T7654321": [
+              "DOCUMENT No",
+              "Date of issue",
+              "Date of expiry"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "EU Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 85,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "21883626-6245-4f3d-9b61-5cbb43e625ee",
+          "Matches": {
+            "T7654321": [
+              "DOCUMENT No",
+              "Date of issue",
+              "Date of expiry"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Estonia Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "61f7073a-509e-425b-a754-bc01bb5d5b8c",
+          "Matches": {
+            "T7654321": [
+              "DOCUMENT No",
+              "Date of issue",
+              "Date of expiry"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Estonia Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "61f7073a-509e-425b-a754-bc01bb5d5b8c",
+          "Matches": {
+            "T7654321": [
+              "DOCUMENT No",
+              "Date of issue",
+              "Date of expiry"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Estonia Passport Number",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 85,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "61f7073a-509e-425b-a754-bc01bb5d5b8c",
+          "Matches": {
+            "T7654321": [
+              "DOCUMENT No",
+              "Date of issue",
+              "Date of expiry"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Custom v1",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "26872a1b-b17f-4634-80d6-fb52c32f6440",
+          "Matches": {
+            "T7654321": "PASSPORT"
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Custom v1",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "26872a1b-b17f-4634-80d6-fb52c32f6440",
+          "Matches": {
+            "T7654321": "PASSPORT"
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Custom v1 copy",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "5e42952a-6b1e-4bdc-8e27-c4a7b19b083b",
+          "Matches": {
+            "T7654321": "PASSPORT"
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Custom v1 copy",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "5e42952a-6b1e-4bdc-8e27-c4a7b19b083b",
+          "Matches": {
+            "T7654321": "PASSPORT"
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Synthetic",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "268f77af-560e-4bf6-b092-49fa4a8dfb65",
+          "Matches": {
+            "PASSPORT\nSAMPLELAND\nType / Typ\nCode of issuing state\nDOCUMENT No\nP\nExample\nSMP\nT7654321": [
+              "PASSPORT",
+              "SAMPLELAND",
+              "SAMPLELAND",
+              "No",
+              "No",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "DOCUMENT",
+              "document",
+              "document"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Synthetic",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "268f77af-560e-4bf6-b092-49fa4a8dfb65",
+          "Matches": {
+            "PASSPORT\nSAMPLELAND\nType / Typ\nCode of issuing state\nDOCUMENT No\nP\nExample\nSMP\nT7654321": [
+              "PASSPORT",
+              "SAMPLELAND",
+              "SAMPLELAND",
+              "No",
+              "No",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "DOCUMENT",
+              "document",
+              "document"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Synthetic",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 85,
+          "Count": 1,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "268f77af-560e-4bf6-b092-49fa4a8dfb65",
+          "Matches": {
+            "PASSPORT\nSAMPLELAND\nType / Typ\nCode of issuing state\nDOCUMENT No\nP\nExample\nSMP\nT7654321": [
+              "PASSPORT",
+              "SAMPLELAND",
+              "SAMPLELAND",
+              "No",
+              "No",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "<<<",
+              "DOCUMENT",
+              "document",
+              "document"
+            ]
+          },
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Synthetic v2",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 2,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "2d1f0ab7-7214-46bf-9991-4311672e7923",
+          "Matches": [
+            {
+              "<<<<<<<<<<<<": null
+            },
+            {
+              "<<<<": null
+            }
+          ],
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Synthetic v2",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 2,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "2d1f0ab7-7214-46bf-9991-4311672e7923",
+          "Matches": [
+            {
+              "<<<<<<<<<<<<": null
+            },
+            {
+              "<<<<": null
+            }
+          ],
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "Australia Passport Number - Synthetic v2",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 85,
+          "Count": 2,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "2d1f0ab7-7214-46bf-9991-4311672e7923",
+          "Matches": [
+            {
+              "<<<<<<<<<<<<": null
+            },
+            {
+              "<<<<": null
+            }
+          ],
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "All Full Names",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 65,
+          "Count": 5,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "50b8b56b-4ef8-44c2-a924-03374f5831ce",
+          "Matches": [
+            {
+              "Sample Health Hub": null
+            },
+            {
+              "Example Gardens": null
+            },
+            {
+              "Testville NSW": null
+            },
+            {
+              "JORDAN EXAMPLE": null
+            },
+            {
+              "CASEY SAMPLE": null
+            }
+          ],
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "All Full Names",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 75,
+          "Count": 4,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "50b8b56b-4ef8-44c2-a924-03374f5831ce",
+          "Matches": [
+            {
+              "Sample Health Hub": null
+            },
+            {
+              "Testville NSW": null
+            },
+            {
+              "JORDAN EXAMPLE": null
+            },
+            {
+              "CASEY SAMPLE": null
+            }
+          ],
+          "StreamName": ""
+        },
+        {
+          "ClassificationName": "All Full Names",
+          "ClassifierType": "None",
+          "ConfidenceLevel": 85,
+          "Count": 3,
+          "DetailedClassificationAttributes": null,
+          "DetailedMatches": null,
+          "Identity": "50b8b56b-4ef8-44c2-a924-03374f5831ce",
+          "Matches": [
+            {
+              "Sample Health Hub": null
+            },
+            {
+              "JORDAN EXAMPLE": null
+            },
+            {
+              "CASEY SAMPLE": null
+            }
+          ],
+          "StreamName": ""
+        }
+      ],
+      "Identity": "157925f3-de22-45dc-bd08-0138eb0625c9"
+    },
+    "SourceFile": "classification-regression-sample.png",
+    "StreamIndex": 1
+  },
+  "Extraction": {
+    "ExtractedStreamText": "Certified sample copy for regression testing only.\nSample Health Hub\nSuite 4 Example Gardens\nTestville NSW 2000\nPhone: 03 9000 0000\nJORDAN EXAMPLE\nOBSERVATIONS\nThis synthetic sample demonstrates OCR extraction and passport-style text.\nPASSPORT\nSAMPLELAND\nDOCUMENT No\nT7654321\nName / Nom\nEXAMPLE\nCASEY SAMPLE\nDate of birth\n01 JAN 1990\nDate of issue\n01 JAN 2020\nDate of expiry\n01 JAN 2030\nP<SMPEXAMPLE<<CASEY<SAMPLE<<<<<<<<<<<<\nT7654321<0SMP9001011F3001012<<<<<<<<<<",
+    "StreamId": 8200,
+    "StreamName": "Message Body",
+    "StreamTextLength": 512
+  },
+  "SourceFile": "classification-regression-sample.png",
+  "Streams": {
+    "Kind": "Body",
+    "Name": "Message Body",
+    "SourceFile": "classification-regression-sample.png",
+    "StreamIndex": 1
+  }
+}

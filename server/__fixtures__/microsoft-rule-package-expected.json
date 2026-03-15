@@ -1,0 +1,8 @@
+{
+  "packageName": "Microsoft Rule Package",
+  "sitName": "Australian Tax File Number",
+  "primaryDisplayName": "Regex.BuiltIn.Primary",
+  "primaryRegex": "\\b\\d{3}\\s?\\d{3}\\s?\\d{3}\\b",
+  "supportingDisplayName": "Keyword.BuiltIn.Supporting",
+  "supportingKeywords": ["ATO", "tax file number"]
+}
