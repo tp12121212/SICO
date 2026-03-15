@@ -4,7 +4,7 @@ import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { NAV_DATA } from "./data";
 import { ArrowLeftIcon, ChevronUp } from "./icons";
 import { MenuItem } from "./menu-item";
@@ -15,8 +15,11 @@ export function Sidebar() {
   const { setIsOpen, isOpen, isMobile, toggleSidebar } = useSidebarContext();
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
-  const isPathActive = (targetUrl: string): boolean =>
-    pathname === targetUrl || pathname.startsWith(`${targetUrl}/`);
+  const isPathActive = useCallback(
+    (targetUrl: string): boolean =>
+      pathname === targetUrl || pathname.startsWith(`${targetUrl}/`),
+    [pathname]
+  );
 
   const toggleExpanded = (title: string) => {
     setExpandedItems((prev) => (prev.includes(title) ? [] : [title]));
@@ -29,6 +32,7 @@ export function Sidebar() {
 
   useEffect(() => {
     // Keep collapsible open, when it's subpage is active
+    let activeTitle = null as string | null;
     NAV_DATA.some((section) => {
       return section.items.some((item) => {
         if (!Array.isArray(item.items) || item.items.length === 0) {
@@ -36,17 +40,21 @@ export function Sidebar() {
         }
         return item.items.some((subItem: { url: string }) => {
           if (isPathActive(subItem.url)) {
-            if (!expandedItems.includes(item.title)) {
-              toggleExpanded(item.title);
-            }
-
+            activeTitle = item.title;
             // Break the loop
             return true;
           }
+          return false;
         });
       });
     });
-  }, [pathname]);
+
+    if (!activeTitle) {
+      return;
+    }
+
+    setExpandedItems((prev) => (prev.includes(activeTitle as string) ? prev : [activeTitle as string]));
+  }, [expandedItems, isPathActive]);
 
   return (
     <>

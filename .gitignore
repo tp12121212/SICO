@@ -57,3 +57,7 @@ temp/
 *.orig
 *.rej
 out.json
+
+# Generated rule-package exports in the project root
+/Microsoft Rule Package_*.xml
+/Microsoft.SCCManaged.CustomRulePack_*.xml
